@@ -1,0 +1,524 @@
+import torch
+import torch.nn.functional as F
+import torch.nn as nn
+import torch.autograd.functional as AF
+import matplotlib.pyplot as plt
+import numpy as np
+from .material_model import TinyNN, LinearElastic, MatSet, Material
+from .utils import load_audio, dense_to_sparse, LOBPCG_solver_freq
+from .mesh import TetMesh
+from .deform import Deform
+from .lobpcg import lobpcg_func
+from .ddsp.oscillator import WeightedParam
+import scipy
+import scipy.sparse
+from tqdm import tqdm
+
+batch_trace = torch.vmap(torch.trace)
+
+class TrainableLinear(nn.Module):
+    def __init__(self, mat: Material, bin_num=16):
+        super().__init__()
+        self.youngs_list = torch.linspace(
+            np.log(mat.youngs / mat.density / 2),
+            np.log(mat.youngs / mat.density * 2),
+            bin_num,
+        )
+        self.youngs_list = torch.exp(self.youngs_list)
+        baseline = False
+        if baseline:
+            self.poisson_list = torch.linspace(mat.poisson, mat.poisson, 1)
+        else:
+            self.poisson_list = torch.linspace(0.01, 0.499, bin_num)
+        self.youngs = WeightedParam(self.youngs_list)
+        self.poisson = WeightedParam(self.poisson_list)
+        self.mat = mat
+
+    def forward(self, F: torch.Tensor):
+        """
+        Piola stress
+        F: deformation gradient with shape (batch_size, node_size, 3, 3)
+        return: stress with shape (batch_size, node_size, 3, 3)
+        """
+
+        batch_size, node_size, _, _ = F.shape
+        F = F.reshape(batch_size * node_size, 3, 3)
+        stress = self.get_stress(F)
+        return stress.reshape(batch_size, node_size, 3, 3)
+
+    def get_stress(self, F):
+        lame_lambda = (
+            self.youngs()
+            * self.poisson()
+            / ((1 + self.poisson()) * (1 - 2 * self.poisson()))
+        )
+        lame_mu = self.youngs() / (2 * (1 + self.poisson()))
+        stress = lame_mu * (F + F.transpose(1, 2)) + lame_lambda * batch_trace(
+            F
+        ).unsqueeze(-1).unsqueeze(-1) * torch.eye(3, device=F.device)
+        return stress
+
+    def jacobian(self):
+        inputs = torch.zeros(1, 3, 3).cuda().double()
+        mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
+        return mat
+
+
+class TrainableNeohookean(nn.Module):
+    def __init__(self, mat: Material, bin_num=16):
+        super().__init__()
+        self.youngs_list = torch.linspace(
+            np.log(mat.youngs / mat.density / 2),
+            np.log(mat.youngs / mat.density * 2),
+            bin_num,
+        )
+        self.youngs_list = torch.exp(self.youngs_list)
+        self.poisson_list = torch.linspace(0.01, 0.499, bin_num)
+        self.youngs = WeightedParam(self.youngs_list)
+        self.poisson = WeightedParam(self.poisson_list)
+        self.mat = mat
+
+    def forward(self, F: torch.Tensor):
+        """
+        Piola stress
+        F: deformation gradient with shape (batch_size, node_size, 3, 3)
+        return: stress with shape (batch_size, node_size, 3, 3)
+        """
+        batch_size, node_size, _, _ = F.shape
+        F = F.reshape(batch_size * node_size, 3, 3)
+        stress = self.get_stress(F)
+        return stress.reshape(batch_size, node_size, 3, 3)
+
+    def get_stress(self, F):
+        lame_lambda = (
+            self.youngs()
+            * self.poisson()
+            / ((1 + self.poisson()) * (1 - 2 * self.poisson()))
+        )
+        lame_mu = self.youngs() / (2 * (1 + self.poisson()))
+        F = F + torch.eye(3, device=F.device)
+        F_inv_t = torch.inverse(F).transpose(1, 2)
+        stress1 = lame_mu * (F - F_inv_t)
+        stress2 = (
+            lame_lambda
+            * torch.log(torch.linalg.det(F)).unsqueeze(-1).unsqueeze(-1)
+            * F_inv_t
+        )
+        return stress1 + stress2
+
+    def jacobian(self):
+        inputs = torch.zeros(1, 3, 3).cuda().double()
+        mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
+        return mat
+    
+class TrainableScale(nn.Module):
+    def __init__(self, scale_range=[0.5, 1.5], bin_num=16):
+        super().__init__()
+        self.scale_list = torch.linspace(
+            np.log(scale_range[0]),
+            np.log(scale_range[1]),
+            bin_num,
+        ).cuda()
+        self.scale_list = torch.exp(self.scale_list)
+        self.scale_num = 1
+        
+        if self.scale_num == 3:
+            self.scalex = WeightedParam(self.scale_list).cuda()
+            self.scaley = WeightedParam(self.scale_list).cuda()
+            self.scalez = WeightedParam(self.scale_list).cuda()
+        else:
+            self.scale = WeightedParam(self.scale_list).cuda()
+    
+    def forward(self):
+        # now x, y, z scale are the same, but can be different in the future
+        if self.scale_num == 3:
+            scalex = self.scalex()
+            scaley = self.scaley()
+            scalez = self.scalez()
+            return torch.diag(torch.stack([scalex, scaley, scalez])).cuda()
+        else:
+            scale = self.scale()
+            scale_m = torch.diag(torch.stack([scale, scale, scale])).cuda()
+            # scale_m[0, 0] = 1
+            # scale_m[1, 1] = 1
+            return scale_m
+        
+
+def build_model(mesh_dir, mode_num, order,
+                     mat, task, vertices=None, tets=None, scale_range=None, init_scale=None):
+    if task == "material":
+        mat_model = TrainableLinear
+    elif task == "shape":
+        mat_model = LinearElastic
+    elif task == "gt":
+        mat_model = LinearElastic
+    else:
+        raise ValueError("task not defined")
+        
+    model = DiffSoundObj(mesh_dir, mode_num=mode_num, order=order,
+                     mat=mat, mat_model=mat_model, task=task, vertices=vertices, tets=tets)
+    
+    if task == "material":
+        model.init_material_coeffs()
+    elif task == "shape":
+        model.init_shape(scale_range) 
+        if init_scale is not None:
+            model.init_scale_coeffs(init_scale)
+        with torch.no_grad(): # first update should have no grad!
+            model.update_shape()
+        
+    return model
+    
+
+class DiffSoundObj:
+    def __init__(
+        self,
+        mesh_dir=None,
+        mode_num=16,
+        vertices=None,
+        tets=None,
+        order=1,
+        mat=MatSet.Ceramic,
+        mat_model=TrainableLinear,
+        task="material",
+    ):
+        """
+        mesh_dir: the directory of the mesh
+        audio_dir: the directory of the audio
+        mat: the material of the object
+        """
+        if mesh_dir:
+            self.mesh_dir = mesh_dir
+            self.tetmesh = TetMesh.from_triangle_mesh(
+                mesh_dir + "model.stl"
+            ).to_high_order(order)
+        else:
+            assert vertices is not None and tets is not None
+            self.tetmesh = TetMesh(vertices, tets).to_high_order(order)
+
+        self.deform = Deform(self.tetmesh)
+        self.material_model = mat_model(Material(mat))
+        self.mass_matrix = self.tetmesh.compute_mass_matrix(density=1.0)
+        self.mode_num = mode_num
+        self.U_hat_full = None
+        self.first_epoch = True
+        self.task = task
+    
+    # return trainable parameters
+    def parameters(self, mat_param=None):
+        if self.task == "material":
+            if mat_param == "youngs":
+                # for OT loss, only tran youngs and fix poisson
+                return self.material_model.youngs.parameters() 
+            else:
+                return self.material_model.parameters()
+        elif self.task == "shape":
+            return self.scale_model.parameters()
+        elif self.task == "debug":
+            return None
+
+    def init_material_coeffs(self, scale = 1):
+        print("pretrain material")
+        optimizer = torch.optim.Adam(self.material_model.parameters(), lr=1e-3)
+        gt_youngs = (
+            self.material_model.mat.youngs / self.material_model.mat.density * scale
+        )
+        gt_poisson = self.material_model.mat.poisson
+        for i in tqdm(range(2000)):
+            optimizer.zero_grad()
+            loss = (self.material_model.youngs() - gt_youngs) ** 2 / gt_youngs**2 + (
+                self.material_model.poisson() - gt_poisson
+            ) ** 2 / gt_poisson**2
+            loss.backward()
+            optimizer.step()
+        print(
+            "(net) youngs: ",
+            self.material_model.youngs() * self.material_model.mat.density,
+            "poisson: ",
+            self.material_model.poisson(),
+        )
+        print(
+            "(material table) youngs: ",
+            self.material_model.mat.youngs,
+            "poisson: ",
+            self.material_model.mat.poisson,
+        )
+        self.scale = torch.eye(3, dtype=torch.float64).cuda()
+        self.origin_mass_matrix = self.mass_matrix.clone()
+        
+    def init_shape(self, scale_range):
+        self.scale_model = TrainableScale(scale_range=scale_range).cuda()
+        self.origin_mass_matrix = self.mass_matrix.clone()
+        self.origin_transform_matrix = self.tetmesh.transform_matrix.clone()
+        self.origin_shape_func_deriv = self.deform.shape_func_deriv.clone()
+        self.origin_integration_weights = self.deform.integration_weights.clone()
+        
+    def init_scale_coeffs(self, gt_scale):
+        print('Start pretraining scale model')
+        optimizer = torch.optim.Adam(self.scale_model.parameters(), lr=1e-2)
+        for i in tqdm(range(2000)):
+            optimizer.zero_grad()
+            loss = torch.sum((self.scale_model().diag() - gt_scale) ** 2 / gt_scale**2)
+            loss.backward()
+            optimizer.step()
+        print(
+            "scale: ",
+            self.scale_model().diag()
+        )
+                
+    # for shape task, we need to update mass matrix, transform matrix and shape_func in each step
+    # using shape parameters
+    def update_shape(self):
+        scale = self.scale_model().to(torch.float64) # (3, 3) diag
+        self.scale = scale
+        if self.scale.requires_grad:
+            self.scale.retain_grad()
+        # mass matrix = mass_matrix * (a*b*c)
+        self.mass_matrix = self.origin_mass_matrix * torch.linalg.det(scale) 
+        self.deform._integration_weights = self.origin_integration_weights * torch.linalg.det(scale) 
+        scale_vector = scale.diagonal()
+        self.deform._shape_func_deriv = self.origin_shape_func_deriv * (1 / scale_vector)
+        self.tetmesh._transform_matrix = (self.origin_transform_matrix.transpose(1, 2) @ scale).transpose(1, 2)
+
+    def update_stiff_matrix(self, assemble_batch_size=20000):
+        with torch.no_grad():
+            N = self.deform.num_nodes_per_tet
+            batch_size = self.deform.num_tets * self.deform.num_guass_points
+            SFDT = self.deform.shape_func_deriv.transpose(1, 2)
+            B = self.material_model.jacobian().reshape(1, 9, 9).double()
+            stress_index = self.deform.stress_index.reshape(batch_size, 3 * N)
+            batch_num = batch_size // assemble_batch_size
+            idxs = torch.linspace(0, batch_size, batch_num + 1).long()
+            shape = self.mass_matrix.shape
+            self.stiff_matrix = torch.sparse_coo_tensor(
+                shape, dtype=torch.double
+            ).cuda()
+            for i in range(batch_num):
+                start = idxs[i]
+                end = idxs[i + 1]
+                A = torch.zeros(end - start, 9, 3 * N).cuda().double()
+                A[:, :3, 0::3] = SFDT[start:end]
+                A[:, 3:6, 1::3] = SFDT[start:end]
+                A[:, 6:9, 2::3] = SFDT[start:end]
+                values = (A.transpose(1, 2) @ B @ A) * self.deform.integration_weights[
+                    start:end
+                ]
+                rows = (
+                    stress_index[start:end].unsqueeze(2).repeat(1, 1, 3 * N).reshape(-1)
+                )
+                cols = (
+                    stress_index[start:end].unsqueeze(1).repeat(1, 3 * N, 1).reshape(-1)
+                )
+                indices = torch.stack([rows, cols], dim=0).long()
+                self.stiff_matrix = self.stiff_matrix + torch.sparse_coo_tensor(
+                    indices, values.reshape(-1), shape
+                )
+                self.stiff_matrix = self.stiff_matrix.coalesce()
+
+    def check_stiff_matrix(self):
+        self.update_stiff_matrix()
+        u0 = torch.randn(self.mass_matrix.shape[0], 8).cuda().double()
+        y1 = self.stiff_func(u0)
+        y2 = self.stiff_matrix @ u0
+        assert torch.allclose(y1, y2)
+
+    def stiff_func(self, x_in: torch.Tensor):
+        # the input may be (point_num*3, modes) or (point_num*3)
+        if len(x_in.shape) == 1:
+            x = x_in.unsqueeze(1)
+        else:
+            x = x_in
+        x = x.transpose(0, 1)
+        x = x.reshape(x.shape[0], -1, 3)
+        F = self.deform.gradient_batch(x)
+        stress = self.material_model(F)
+        force = self.deform.stress_to_force_batch(stress)  # (modes, point_num*3)
+        force = force.transpose(0, 1)
+        if len(x_in.shape) == 1:
+            force = force.squeeze(1)
+        return force
+
+    def eigen_decomposition(self, native=False):
+        with torch.no_grad():
+            if native:
+                self.eigen_decomposition_native()
+                return
+            self.update_stiff_matrix()
+            if self.U_hat_full is None:
+                self.eigen_decomposition_arpack()
+                # self.eigen_decomposition_torch()
+            else:
+                self.eigen_decomposition_torch()
+
+    def eigen_decomposition_native(self):
+        with torch.no_grad():
+            S, U_hat_full = lobpcg_func(
+                self.stiff_func,
+                self.mass_matrix,
+                self.mode_num + 6,
+                X=self.U_hat_full,
+                largest=False,
+                niter=2000,
+            )
+        self.U_hat_full = U_hat_full
+        self.U_hat = U_hat_full[:, 6:]
+        self.eigenvalues = S
+
+    def eigen_decomposition_torch(self):
+        with torch.no_grad():
+            S, U_hat_full = lobpcg_func(
+                self.stiff_matrix,
+                self.mass_matrix,
+                self.mode_num + 6,
+                X=self.U_hat_full if self.U_hat_full is not None else None,
+                largest=False,
+                niter=2000,
+            )
+        self.U_hat_full = U_hat_full
+        self.U_hat = U_hat_full[:, 6:]
+        self.eigenvalues = S
+
+    def eigen_decomposition_arpack(self):
+        stiff_mat = scipy.sparse.coo_matrix(
+            (
+                self.stiff_matrix.values().cpu().numpy(),
+                (
+                    self.stiff_matrix.indices()[0].cpu().numpy(),
+                    self.stiff_matrix.indices()[1].cpu().numpy(),
+                ),
+            )
+        ).tocsr()
+        stiff_mat.eliminate_zeros()
+        mass_mat = scipy.sparse.coo_matrix(
+            (
+                self.mass_matrix.values().cpu().numpy(),
+                (
+                    self.mass_matrix.indices()[0].cpu().numpy(),
+                    self.mass_matrix.indices()[1].cpu().numpy(),
+                ),
+            )
+        ).tocsr()
+        mass_mat.eliminate_zeros()
+        S, U_hat_full = scipy.sparse.linalg.eigsh(
+            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=0
+        )
+        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().double()
+        self.U_hat = torch.from_numpy(U_hat_full[:, 6:]).cuda().double()
+        self.eigenvalues = torch.from_numpy(S).cuda().double()
+        # print("eigenvalues: ", self.eigenvalues)
+
+    def get_undamped_freqs(self, sample_num = 1):
+        if self.task == "shape":
+            self.update_shape()
+
+        predict = torch.zeros(self.mode_num).cuda()
+        predict += self.eigenvalues[6:] # (mode_num)
+
+        idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
+        U = self.U_hat[:, idxs] # (n, sample_num)
+        vals = self.eigenvalues[6:][idxs]
+        if self.task == "shape":
+            mass_k = torch.linalg.det(self.scale)
+        else:
+            mass_k = 1
+        if self.task != "gt":
+            add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * mass_k * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
+            predict[idxs] += add_term
+        predict = torch.sqrt(predict) / 2 / np.pi
+        return predict.unsqueeze(1)
+    
+
+    def set2set_loss(self, kl_matrix, weights, target_importance):
+        """
+        kl_matrix: rows is predict, cols is target
+        """
+        # predict to target
+        loss1 = (weights * kl_matrix).sum(1) / weights.sum(1)
+        # target to predict
+        loss2 = (weights * kl_matrix).sum(0) / weights.sum(0)
+        target_importance = (
+            target_importance / target_importance.sum() * target_importance.shape[0]
+        )
+        return loss1.mean() + (loss2 * target_importance).mean()
+
+    def match_loss(
+        self,
+        undamped_freqs,
+        damps,
+        sample_num=8,
+        smooth_value=1,
+        eps=1e-2,
+        force=1.0,
+        force_sample_rate = 48000,
+        alpha=2,
+        beta = 10,
+    ):
+        """
+        undamped_freqs: (full_sample_num, high_energy_mode_num), sorted
+        damps: (1, high_energy_mode_num), sorted by undamped_freqs
+        """
+        # we have pretrained in eigen_decomp, so we don't need to do it again
+        # if self.first_epoch:
+        #     base_eigenvalue = self.eigenvalues[6]
+        #     base_eigenvalue_from_data = (
+        #         undamped_freqs.mean(0)[0].item() * 2 * np.pi
+        #     ) ** 2
+        #     self.pretrain_material(base_eigenvalue_from_data / base_eigenvalue)
+        #     self.first_epoch = False
+
+        mode_amp = (force / force_sample_rate) * torch.abs(self.U_hat).mean(0) / (self.eigenvalues[6:] ** 0.5)
+        while True:
+            x = torch.rand(self.mode_num, sample_num, dtype=torch.float64).cuda() * 2 - 1
+            x[x >= 0] += eps
+            x[x < 0] -= eps
+            x = x * mode_amp.unsqueeze(1)
+            predict = self.U_hat.T @ self.stiff_func(
+                self.U_hat @ x
+            )  # (mode_num, sample_num)
+            predict = predict / x
+            predict = torch.sqrt(predict) / 2 / np.pi
+            if not torch.isnan(predict).any():
+                break
+            else:
+                print("resample")
+                # clear memory 
+                del x
+                del predict
+                torch.cuda.empty_cache()
+
+        self.predict = predict
+        predict_mean = predict.mean(1)
+        # if predict is (n, 1), std will be nan!!!
+        if predict.shape[1] == 1:
+            predict_std = torch.zeros_like(predict_mean) + eps
+        else:
+            predict_std = predict.std(1) + eps  # avoid the value is 0
+
+        # target = (undamped_freqs * 2 * np.pi)**2
+        target = undamped_freqs
+        target = target.transpose(0, 1)  # (mode_num, sample_num)
+        target_mean = target.mean(1)
+        target_std = target.std(1) + eps
+
+        # KL divergence matrix (mode_num, mode_num)
+        predict_mean = predict_mean.unsqueeze(1)
+        predict_std = predict_std.unsqueeze(1)
+        target_mean = target_mean.unsqueeze(0)
+        target_std = target_std.unsqueeze(0)
+
+        kl = (
+            torch.log(target_std / predict_std)
+            + (predict_std**2 + (predict_mean - target_mean) ** 2)
+            / (2 * target_std**2 + smooth_value)
+            - 0.5
+        )
+
+        kl = kl / (target_mean**2) * (2 * target_std.max() ** 2 + smooth_value)
+        # loss of foundamental frequency
+        loss_base = kl[0, 0]
+
+        # set to set match loss
+        weights = 1.0 / (kl * beta + eps)
+        # give higher weight for lower damping
+        target_importance = 1.0 / (damps + eps)
+        return self.set2set_loss(kl, weights, target_importance) + loss_base * alpha

@@ -1,0 +1,23 @@
+# High-Order-DiffFEM
+
+This is a high-order differential finite element method (DiffFEM) solver for the sound vibration simulation of a 3D solid object. The code is written in python and uses the pytorch library for the automatic differentiation. 
+
+## Prerequisites
+- Pytorch 2.0 (cuda 11.7)
+- pytorch-scatter 
+- fTetWild 
+- scipy, matplotlib, tqdm, numpy, meshio, pymesh
+
+For the installation of fTetWild:
+```bash
+sudo apt-get install libgmp-dev
+git clone https://github.com/wildmeshing/fTetWild.git
+cd fTetWild
+mkdir build
+cd build
+cmake ..
+make
+```
+Then add the build directory to the environment variable PATH.
+
+### 

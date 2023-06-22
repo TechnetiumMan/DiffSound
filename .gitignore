@@ -1,0 +1,13 @@
+__pycache__
+**/cuda/build
+**/build/
+src/__pycache__
+assets/
+**.pt
+saves
+data
+*.mp3
+events.out.tfevents.*
+*.pth
+runs
+experiments/specs

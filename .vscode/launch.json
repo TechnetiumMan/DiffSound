@@ -1,0 +1,65 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python: 当前文件",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "ddsp",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/ddsp.py",
+            "console": "integratedTerminal",
+            "args": ["experiments/configs/test_pipeline.ini"],
+            "justMyCode": true
+        },
+        {
+            "name": "new_pipeline",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/new_pipeline.py",
+            "console": "integratedTerminal",
+            "args": ["experiments/configs/22_2_mat_damp_curve.ini"],
+            "justMyCode": true
+        },
+        {
+            "name": "mat_transfer",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/mat_transfer.py",
+            "console": "integratedTerminal",
+            "args": ["experiments/configs/4_mat_transfer_from2.ini"],
+            "justMyCode": true
+        },
+        {
+            "name": "CUDA-python-test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/xuchenxi/.conda/envs/xcx/bin/python",
+            "args": [
+                "${file}"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/local/cuda/bin/cuda-gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+    ]
+}
