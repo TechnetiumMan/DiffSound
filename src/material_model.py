@@ -38,6 +38,8 @@ class TinyNN(Module):
         nn.init.normal_(self.layer3.weight, 0, np.sqrt(1 / mid_dim))
         if self.non_linear:
             self.relu = torch.nn.ReLU()
+            
+        self.last_layer = torch.nn.Tanh()
 
     def forward(self, x):
         x = self.layer1(x)
@@ -47,6 +49,8 @@ class TinyNN(Module):
         if self.non_linear:
             x = self.relu(x)
         x = self.layer3(x)
+        # new
+        x = self.last_layer(x)
         return x
 
 

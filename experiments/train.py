@@ -6,7 +6,7 @@ import configparser
 from datetime import datetime
 from src.diff_model import DiffSoundObj, MatSet, TrainableLinear, TrainableNeohookean, Material, build_model
 import torchaudio
-from src.utils import load_audio, plot_signal, plot_spec, reconstruct_signal
+from src.utils import load_audio, plot_signal, plot_spec, reconstruct_signal, comsol_mesh_loader
 from src.spectrogram import resample
 from torchaudio.functional import highpass_biquad
 from torch.optim import Adam, lr_scheduler
@@ -89,10 +89,18 @@ late_loss_func = MSSLoss([512, 256, 128, 64, 32], sample_rate, type='l1_loss').c
 log_spec_funcs = [
     late_loss_func.losses[i].log_spec for i in range(len(late_loss_func.losses))]
 material_coeff = getattr(MatSet, material)
+
+# debug: for step train test
+# material_coeff = getattr(MatSet, material)
+# vertices, tets = comsol_mesh_loader("assets/bowl_coarse.txt")
+# model = build_model(mesh_dir=None, mode_num=eigen_num, order=mesh_order, mat=material_coeff, task=task, \
+#     scale_range=scale_range, vertices=vertices, tets=tets)
+
 model = build_model(mesh_dir, mode_num=eigen_num, order=mesh_order, mat=material_coeff, task=task, scale_range=scale_range)
 
 pre_osc = GTDampedOscillator(gt_forces, len(
     gt_audios), eigen_num * 16, frame_num, sample_rate, freq_list, Material(material_coeff)).cuda()
+
 
 optimizer_pre_osc = Adam(pre_osc.parameters(), lr=5e-3)
 scheduler_pre_osc = lr_scheduler.StepLR(optimizer_pre_osc, step_size=100, gamma=0.99)

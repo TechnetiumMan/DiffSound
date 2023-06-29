@@ -5,7 +5,7 @@ import torch.autograd.functional as AF
 import matplotlib.pyplot as plt
 import numpy as np
 from .material_model import TinyNN, LinearElastic, MatSet, Material
-from .utils import load_audio, dense_to_sparse, LOBPCG_solver_freq
+from .utils import load_audio, dense_to_sparse, LOBPCG_solver_freq, normalize_input
 from .mesh import TetMesh
 from .deform import Deform
 from .lobpcg import lobpcg_func
@@ -13,6 +13,7 @@ from .ddsp.oscillator import WeightedParam
 import scipy
 import scipy.sparse
 from tqdm import tqdm
+from src.solve import WaveSolver
 
 batch_trace = torch.vmap(torch.trace)
 
@@ -338,17 +339,30 @@ class DiffSoundObj:
             force = force.squeeze(1)
         return force
 
-    def eigen_decomposition(self, native=False):
+    def eigen_decomposition(self, native=False, load=False, save=False, freq=None, grad=False):
         with torch.no_grad():
             if native:
                 self.eigen_decomposition_native()
                 return
             self.update_stiff_matrix()
-            if self.U_hat_full is None:
-                self.eigen_decomposition_arpack()
-                # self.eigen_decomposition_torch()
+            
+            if load:
+                self.U_hat_full, self.U_hat, self.eigenvalues = torch.load("saves/eigen.pt")
             else:
-                self.eigen_decomposition_torch()
+                if self.U_hat_full is None:
+                    self.eigen_decomposition_arpack()
+                else:
+                    self.eigen_decomposition_torch()
+                
+                if freq:
+                    eigenvalue_limit = (freq * 2 * 3.14159) ** 2
+                    mask = self.eigenvalues < eigenvalue_limit
+                    self.eigenvaluse = self.eigenvalues[mask]
+                    self.U_hat_full = self.U_hat_full[:, mask]
+                    self.U_hat = self.U_hat_full[:, 6:]
+            
+            if save:
+                torch.save([self.U_hat_full, self.U_hat, self.eigenvalues], "saves/eigen.pt")
 
     def eigen_decomposition_native(self):
         with torch.no_grad():
@@ -522,3 +536,70 @@ class DiffSoundObj:
         # give higher weight for lower damping
         target_importance = 1.0 / (damps + eps)
         return self.set2set_loss(kl, weights, target_importance) + loss_base * alpha
+    
+    # for our new step model, RK4 forward is needed
+    def step_init(self, force, dt, audio_num, sr, mode_num, nonlinear_rate):
+        self.mode_num = mode_num # update it to real value restricted by freq limit
+        self.nonlinear_rate = nonlinear_rate
+        self.stiffness_net = TinyNN(mode_num, 16, mode_num).cuda()
+        def stiff_matvec(x: torch.Tensor): 
+            # return self.eigenvalues @ x
+            # for stiffness, we use eigenvalues and only train network for nonlinear part
+            # the input of network is x, and output is in (-1, 1)
+            # Question: should we use reduced x for network input instead of x in all nodes?
+            x_in = normalize_input(x)
+            x_out = self.stiffness_net(x_in).double() # (mode_num) in (-1, 1)
+            result = self.graded_eigenvalues * x * (1 + self.nonlinear_rate * x_out)
+            return result
+            
+        def damping_matvec(x): return torch.zeros_like(x) # temporary
+        def get_force(t):
+            t_int = int(t * sr)
+            cnt_f = force[:, t_int]
+            f = torch.zeros([cnt_f.shape[0], self.U_hat.shape[0]], dtype=torch.float64).cuda() # (sound_num, point_num)
+            f[:, 0] = cnt_f 
+            # U_hat.T: (mode_num, point_num)
+            # f_test = (self.U_hat.T @ f.T).T 
+            f = f @ self.U_hat # (sound_num, mode_num)
+            return f
+
+        self.solver = WaveSolver("identity", damping_matvec,
+                            stiff_matvec, get_force, dt, batch_size=audio_num)
+        
+    # def step_update(self):
+    #     def stiff_matvec(x: torch.Tensor): 
+    #         x_in = normalize_input(x)
+    #         x_out = self.stiffness_net(x_in) # (mode_num) in (-1, 1)
+    #         result = self.eigenvalues * x * (1 + self.nonlinear_rate * x_out)
+    #         return result
+    #     self.solver.update(stiff_matrix = stiff_matvec)
+    
+    # for our new step model, RK4 forward is needed
+    def forward(self, step_num):
+        x = self.solver.solve(step_num)
+        x = x.transpose(0, 1).transpose(1, 2)
+        x = self.U_hat @ x
+        return x
+    
+    # graded eigenvalue for step
+    def get_graded_eigenvalues(self, sample_num = 1):
+        if self.task == "shape":
+            self.update_shape()
+
+        predict = torch.zeros(self.mode_num).cuda()
+        predict += self.eigenvalues[6:] # (mode_num)
+
+        idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
+        U = self.U_hat[:, idxs] # (n, sample_num)
+        vals = self.eigenvalues[6:][idxs]
+        if self.task == "shape":
+            mass_k = torch.linalg.det(self.scale)
+        else:
+            mass_k = 1
+        if self.task != "gt":
+            add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * mass_k * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
+            predict[idxs] += add_term
+        # predict = torch.sqrt(predict) / 2 / np.pi
+        # return predict.unsqueeze(1)
+        
+        self.graded_eigenvalues = predict

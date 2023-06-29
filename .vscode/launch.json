@@ -26,18 +26,18 @@
             "name": "new_pipeline",
             "type": "python",
             "request": "launch",
-            "program": "experiments/new_pipeline.py",
+            "program": "experiments/train.py",
             "console": "integratedTerminal",
-            "args": ["experiments/configs/22_2_mat_damp_curve.ini"],
+            "args": ["experiments/configs/2_2_mat_newloss_16audio.ini"],
             "justMyCode": true
         },
         {
-            "name": "mat_transfer",
+            "name": "step_train",
             "type": "python",
             "request": "launch",
-            "program": "experiments/mat_transfer.py",
+            "program": "experiments/step_train.py",
             "console": "integratedTerminal",
-            "args": ["experiments/configs/4_mat_transfer_from2.ini"],
+            "args": ["experiments/configs/2_2_mat_step.ini"],
             "justMyCode": true
         },
         {

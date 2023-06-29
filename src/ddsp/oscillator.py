@@ -279,7 +279,7 @@ class TraditionalDampedOscillator(nn.Module):
 def init_damps(osc):
     print('Start pretraining for alpha and beta')
     optimizer = torch.optim.Adam(list(osc.alpha.parameters()) + list(osc.beta.parameters()), lr=0.01)
-    for i in tqdm(range(10000)):
+    for i in tqdm(range(2000)):
         optimizer.zero_grad()
         loss = (osc.alpha() - osc.mat.alpha)**2/ osc.mat.alpha**2 + (osc.beta() - osc.mat.beta)**2 / osc.mat.beta**2
         loss = loss.mean()

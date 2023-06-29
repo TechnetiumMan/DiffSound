@@ -115,7 +115,7 @@ class EyeSolver():
 
 class WaveSolver():
 
-    def __init__(self, mass_matrix, damping_matrix, stiffness_matrix, force, dt):
+    def __init__(self, mass_matrix, damping_matrix, stiffness_matrix, force, dt, batch_size=1):
         '''
         mass_matrix: mass matrix, a sparse matrix|'identity'
         damping_matrix: damping matrix, a function of v
@@ -127,12 +127,23 @@ class WaveSolver():
         self.K = stiffness_matrix
         self.force = force
         self.dt = dt
+        self.batch_size = batch_size
         if mass_matrix == 'identity':
-            self.M_mat = torch.eye(force(0).shape[0]).cuda()
+            self.M_mat = torch.eye(force(0).shape[-1]).cuda()
             self.mass_linear_solver = EyeSolver()
         else:
             self.M_mat = mass_matrix
             self.mass_linear_solver = self.init_mass_linear_solver()
+            
+    def update(self, mass_matrix=None, damping_matrix=None, stiff_matrix=None):
+        if mass_matrix is not None:
+            self.M_mat = mass_matrix
+            self.mass_linear_solver = self.init_mass_linear_solver()
+        if damping_matrix is not None:
+            self.C = damping_matrix
+        if stiff_matrix is not None:
+            self.K = stiff_matrix
+            
 
     def init_mass_linear_solver(self):
         # preconditioner as inverse of diagonal of mass matrix (which is a sparse matrix)
@@ -172,9 +183,9 @@ class WaveSolver():
         '''
 
         # initial condition
-        v = torch.zeros(self.M_mat.shape[0], dtype=torch.float32, requires_grad=True).to(
+        v = torch.zeros([self.batch_size, self.M_mat.shape[0]], dtype=torch.float64, requires_grad=True).to(
             self.M_mat.device)
-        x = torch.zeros(self.M_mat.shape[0], dtype=torch.float32, requires_grad=True).to(
+        x = torch.zeros([self.batch_size, self.M_mat.shape[0]], dtype=torch.float64, requires_grad=True).to(
             self.M_mat.device)
 
         xs = []

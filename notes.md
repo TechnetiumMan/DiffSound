@@ -100,3 +100,17 @@ after
 除了频谱，还有什么可以描述声音的特征？
 想办法近似？否则显存会炸RN
 RNN？进去一个seq，出来一个seq，可以attention？
+
+
+0629
+关于非线性的梯度问题
+如果要优化youngs/poisson, 之前的方法是首先获得无梯度的eigenvalue（事实上如果要让它本身有梯度，就需要特征值分解全程可微，which is extremely costly!）
+然后，用stiff func（而不是身stiffness matrix, 因为它没梯度！）作用一遍，stiff func中的youngs/poisson的梯度就会被eigenvalue获得！
+
+现在，为了做到这一点，在step模拟中，我们有两个思路：
+1. 保持上述算法，但是stiff func在梯度流程中过几千遍而不是一遍
+2. 先让stiff matrix获得梯度，然后用其而不是stiff func对eigenvalue作用！
+3. 先试试第一种
+
+
+

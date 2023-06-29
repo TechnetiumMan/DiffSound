@@ -174,4 +174,18 @@ def plot_signal(siganl):
     ax.plot(siganl.detach().cpu().numpy())
     fig.tight_layout(pad=0)
     return fig
+
+# for nonlinear input, we need to normalize input displacement to a network's input
+def normalize_input(x):
+    x = x.float() # float32
+
+    # scale abs(x) from (1e-6, 1) to (-1, 1)
+    x_abs = torch.abs(x)
+    x_abs = torch.where(x_abs < 1e-6, 1e-6, x_abs)
+        
+    # x_scale = torch.log10(x_abs * 1e12) / 12
+    x_scale = torch.log10(x_abs * 1e3) / 3
+    # x_out = torch.where(x < 0, -x_scale, x_scale)
+    
+    return x_scale
     
