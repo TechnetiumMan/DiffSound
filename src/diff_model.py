@@ -542,15 +542,20 @@ class DiffSoundObj:
         self.mode_num = mode_num # update it to real value restricted by freq limit
         self.nonlinear_rate = nonlinear_rate
         self.stiffness_net = TinyNN(mode_num, 16, mode_num).cuda()
+        
         def stiff_matvec(x: torch.Tensor): 
-            # return self.eigenvalues @ x
             # for stiffness, we use eigenvalues and only train network for nonlinear part
             # the input of network is x, and output is in (-1, 1)
             # Question: should we use reduced x for network input instead of x in all nodes?
             x_in = normalize_input(x)
             x_out = self.stiffness_net(x_in).double() # (mode_num) in (-1, 1)
-            result = self.graded_eigenvalues * x * (1 + self.nonlinear_rate * x_out)
+            result = self.grad_eigenvalues * x * (1 + self.nonlinear_rate * x_out)
             return result
+        
+        # using Piola-stress-based stiffness will run out of memory!!!
+        # def stiff_func_matvec(x: torch.Tensor): 
+        #     result = (self.U_hat.T @ self.stiff_func(self.U_hat @ x.T)).T
+        #     return result 
             
         def damping_matvec(x): return torch.zeros_like(x) # temporary
         def get_force(t):
@@ -558,21 +563,13 @@ class DiffSoundObj:
             cnt_f = force[:, t_int]
             f = torch.zeros([cnt_f.shape[0], self.U_hat.shape[0]], dtype=torch.float64).cuda() # (sound_num, point_num)
             f[:, 0] = cnt_f 
-            # U_hat.T: (mode_num, point_num)
-            # f_test = (self.U_hat.T @ f.T).T 
+            # U_hat: (point_num, mode_num)
             f = f @ self.U_hat # (sound_num, mode_num)
             return f
 
         self.solver = WaveSolver("identity", damping_matvec,
                             stiff_matvec, get_force, dt, batch_size=audio_num)
         
-    # def step_update(self):
-    #     def stiff_matvec(x: torch.Tensor): 
-    #         x_in = normalize_input(x)
-    #         x_out = self.stiffness_net(x_in) # (mode_num) in (-1, 1)
-    #         result = self.eigenvalues * x * (1 + self.nonlinear_rate * x_out)
-    #         return result
-    #     self.solver.update(stiff_matrix = stiff_matvec)
     
     # for our new step model, RK4 forward is needed
     def forward(self, step_num):
@@ -581,25 +578,26 @@ class DiffSoundObj:
         x = self.U_hat @ x
         return x
     
-    # graded eigenvalue for step
-    def get_graded_eigenvalues(self, sample_num = 1):
-        if self.task == "shape":
-            self.update_shape()
-
+    # eigenvalue with grad for step
+    def get_grad_eigenvalues(self, sample_num = None):
+        
         predict = torch.zeros(self.mode_num).cuda()
         predict += self.eigenvalues[6:] # (mode_num)
-
-        idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
-        U = self.U_hat[:, idxs] # (n, sample_num)
-        vals = self.eigenvalues[6:][idxs]
-        if self.task == "shape":
-            mass_k = torch.linalg.det(self.scale)
-        else:
-            mass_k = 1
-        if self.task != "gt":
-            add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * mass_k * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
+        
+        if sample_num is None: # use all modes for sample
+            sample_num = self.mode_num
+            U = self.U_hat
+            vals = self.eigenvalues[6:]
+            add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
+            predict += add_term
+        else: # random choose some modes for sample
+            idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
+            U = self.U_hat[:, idxs] # (n, sample_num)
+            vals = self.eigenvalues[6:][idxs]
+            add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
             predict[idxs] += add_term
+            
         # predict = torch.sqrt(predict) / 2 / np.pi
         # return predict.unsqueeze(1)
         
-        self.graded_eigenvalues = predict
+        self.grad_eigenvalues = predict

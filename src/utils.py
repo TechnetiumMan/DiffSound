@@ -179,12 +179,12 @@ def plot_signal(siganl):
 def normalize_input(x):
     x = x.float() # float32
 
-    # scale abs(x) from (1e-6, 1) to (-1, 1)
+    # scale abs(x) from (1e-10, 1e-6) to (-1, 1)
     x_abs = torch.abs(x)
-    x_abs = torch.where(x_abs < 1e-6, 1e-6, x_abs)
+    x_abs = torch.where(x_abs < 1e-10, 1e-10, x_abs)
         
     # x_scale = torch.log10(x_abs * 1e12) / 12
-    x_scale = torch.log10(x_abs * 1e3) / 3
+    x_scale = torch.log10(x_abs * 1e8) / 2
     # x_out = torch.where(x < 0, -x_scale, x_scale)
     
     return x_scale

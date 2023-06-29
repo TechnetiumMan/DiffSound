@@ -88,11 +88,12 @@ loss_func = MSSLoss([512, 256, 128, 64, 32], sample_rate, type='l1_loss').cuda()
 rmse_loss_func = MSSLoss([512, 256, 128, 64, 32], sample_rate, type='rmse_loss').cuda()
 log_spec_funcs = [
     loss_func.losses[i].log_spec for i in range(len(loss_func.losses))]
-
 material_coeff = getattr(MatSet, material)
-vertices, tets = comsol_mesh_loader("assets/bowl_coarse.txt")
-model = build_model(mesh_dir=None, mode_num=eigen_num, order=mesh_order, mat=material_coeff, task=task, \
-    scale_range=scale_range, vertices=vertices, tets=tets)
+
+model = build_model(mesh_dir, mode_num=eigen_num, order=mesh_order, mat=material_coeff, task=task, scale_range=scale_range)
+# vertices, tets = comsol_mesh_loader("assets/bowl_coarse.txt")
+# model = build_model(mesh_dir=None, mode_num=eigen_num, order=mesh_order, mat=material_coeff, task=task, \
+#     scale_range=scale_range, vertices=vertices, tets=tets)
 
 # init eigen decomp for step init
 model.eigen_decomposition(freq=freq_limit)
@@ -102,8 +103,9 @@ eigen_num = model.U_hat.shape[1]
 model.step_init(gt_forces, 1./(sample_rate * upsample), audio_num, sample_rate, eigen_num, nonlinear_rate)
 
 # Create the optimizer and scheduler
-optimizer_model = Adam(model.parameters(), lr=1e-2)
+optimizer_model = Adam(model.parameters(), lr=2e-2)
 scheduler_model = lr_scheduler.StepLR(optimizer_model, step_size=100, gamma=0.98)
+optimizer_net = Adam(model.stiffness_net.parameters(), lr=5e-3)
 
 EIGEN_DECOMPOSE_CYCLE = 1
 
@@ -111,10 +113,9 @@ for epoch_i in tqdm(range(max_epoch)):
     # change loss func and optimizer for epoch
     if epoch_i % EIGEN_DECOMPOSE_CYCLE == 0:
         model.eigen_decomposition() # now eigen_num has been updated, so don't need to use freq_limit
-        model.get_graded_eigenvalues()
-        # model.step_update()
+        model.get_grad_eigenvalues()
     
-    predict_signal = model.forward(int(frame_num * upsample)) # 10x upsample
+    predict_signal = model.forward(int(frame_num * upsample)) # upsample
     predict_signal = torch.sum(predict_signal.transpose(-1, -2), dim=-1)
     predict_signal = predict_signal[:, ::upsample]
     
@@ -128,11 +129,13 @@ for epoch_i in tqdm(range(max_epoch)):
     writer.add_scalar('loss', loss.item(), epoch_i)
 
     optimizer_model.zero_grad()
+    optimizer_net.zero_grad()
     loss.backward()
     optimizer_model.step()
+    optimizer_net.step()
     scheduler_model.step()
 
-    if epoch_i % (EIGEN_DECOMPOSE_CYCLE*5) == 0:
+    if epoch_i % (EIGEN_DECOMPOSE_CYCLE) == 0:
         with torch.no_grad():
             print('loss_model: ', loss.item())
             

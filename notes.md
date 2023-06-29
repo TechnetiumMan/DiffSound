@@ -109,8 +109,10 @@ RNN？进去一个seq，出来一个seq，可以attention？
 
 现在，为了做到这一点，在step模拟中，我们有两个思路：
 1. 保持上述算法，但是stiff func在梯度流程中过几千遍而不是一遍
-2. 先让stiff matrix获得梯度，然后用其而不是stiff func对eigenvalue作用！
-3. 先试试第一种
+2. 让eigenvalue获得梯度，然后每次迭代均使用已经获得梯度的eigenvalue进行！
+
+方案1是肯定不行的，在200个顶点的网格中迭代182次即爆显存！因此只能使用方案2.
+
 
 
 
