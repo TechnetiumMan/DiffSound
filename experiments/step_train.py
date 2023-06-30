@@ -36,7 +36,8 @@ sample_rate = config.getint('audio', 'sample_rate')
 freq_limit = config.getint('train', 'freq_limit')
 upsample = config.getint('train', 'upsample')
 max_epoch = config.getint('train', 'max_epoch')
-nonlinear_rate = config.getfloat('train', 'freq_nonlinear')
+freq_nonlinear = config.getfloat('train', 'freq_nonlinear')
+damp_nonlinear = config.getfloat('train', 'damp_nonlinear')
 mesh_dir = config.get('mesh', 'dir')
 mesh_order = config.getint('mesh', 'order')
 eigen_num = config.getint('mesh', 'eigen_num')
@@ -100,7 +101,7 @@ model.eigen_decomposition(freq=freq_limit)
 # now because of freq limit, the real eigen num != the argument eigen_num.
 # so we need to update the eigen_num to real value
 eigen_num = model.U_hat.shape[1]
-model.step_init(gt_forces, 1./(sample_rate * upsample), audio_num, sample_rate, eigen_num, nonlinear_rate)
+model.step_init(gt_forces, 1./(sample_rate * upsample), audio_num, sample_rate, eigen_num, freq_nonlinear, damp_nonlinear)
 
 # Create the optimizer and scheduler
 optimizer_model = Adam(model.parameters(), lr=2e-2)
@@ -170,10 +171,10 @@ for epoch_i in tqdm(range(max_epoch)):
                                   log_spec_funcs[spec_idx](predict_signal[audio_idx], spec_scale),
                         ),
                         epoch_i)
-            # torchaudio.save(dir_name + '/predict.mp3',
-            #                 predict_signal[0].detach().cpu().unsqueeze(0), sample_rate)
-            # torchaudio.save(dir_name + '/gt.mp3',
-            #                 gt_audios[0].detach().cpu().unsqueeze(0), sample_rate)
+            torchaudio.save(dir_name + '/predict.mp3',
+                            predict_signal[0].detach().float().cpu().unsqueeze(0), sample_rate)
+            torchaudio.save(dir_name + '/gt.mp3',
+                            gt_audios[0].detach().float().cpu().unsqueeze(0), sample_rate)
     # if epoch_i % (EIGEN_DECOMPOSE_CYCLE*100) == 0:
     #     if task == "material":
     #         torch.save(model.material_model.state_dict(), dir_name + '/model.pth')

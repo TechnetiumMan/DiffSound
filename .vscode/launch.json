@@ -37,7 +37,7 @@
             "request": "launch",
             "program": "experiments/step_train.py",
             "console": "integratedTerminal",
-            "args": ["experiments/configs/2_2_mat_step.ini"],
+            "args": ["experiments/configs/30_2_mat_step.ini"],
             "justMyCode": true
         },
         {

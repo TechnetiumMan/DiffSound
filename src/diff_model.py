@@ -204,6 +204,7 @@ class DiffSoundObj:
         self.U_hat_full = None
         self.first_epoch = True
         self.task = task
+        self.mat = Material(mat)
     
     # return trainable parameters
     def parameters(self, mat_param=None):
@@ -538,10 +539,11 @@ class DiffSoundObj:
         return self.set2set_loss(kl, weights, target_importance) + loss_base * alpha
     
     # for our new step model, RK4 forward is needed
-    def step_init(self, force, dt, audio_num, sr, mode_num, nonlinear_rate):
+    def step_init(self, force, dt, audio_num, sr, mode_num, freq_nonlinear, damp_nonlinear):
         self.mode_num = mode_num # update it to real value restricted by freq limit
-        self.nonlinear_rate = nonlinear_rate
+        self.freq_nonlinear = freq_nonlinear
         self.stiffness_net = TinyNN(mode_num, 16, mode_num).cuda()
+        # self.damping_net = TinyNN(mode_num, 16, mode_num).cuda()
         
         def stiff_matvec(x: torch.Tensor): 
             # for stiffness, we use eigenvalues and only train network for nonlinear part
@@ -549,7 +551,7 @@ class DiffSoundObj:
             # Question: should we use reduced x for network input instead of x in all nodes?
             x_in = normalize_input(x)
             x_out = self.stiffness_net(x_in).double() # (mode_num) in (-1, 1)
-            result = self.grad_eigenvalues * x * (1 + self.nonlinear_rate * x_out)
+            result = self.grad_eigenvalues * x * (1 + self.freq_nonlinear * x_out)
             return result
         
         # using Piola-stress-based stiffness will run out of memory!!!
@@ -557,7 +559,11 @@ class DiffSoundObj:
         #     result = (self.U_hat.T @ self.stiff_func(self.U_hat @ x.T)).T
         #     return result 
             
-        def damping_matvec(x): return torch.zeros_like(x) # temporary
+        def damping_matvec(v): 
+            damping = (self.mat.alpha + self.mat.beta * self.grad_eigenvalues) * v # damping need grad too!
+            # TODO: add a network for nonlinear
+            return damping
+        
         def get_force(t):
             t_int = int(t * sr)
             cnt_f = force[:, t_int]
