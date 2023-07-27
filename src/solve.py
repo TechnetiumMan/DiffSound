@@ -177,18 +177,24 @@ class WaveSolver():
         a = self.mass_linear_solver.solve(rhs)
         return a, v
 
-    def solve(self, num_step):
+    def solve(self, num_step, output_v=False):
         '''
         solve the linear system using the RK4 method
         '''
 
         # initial condition
-        v = torch.zeros([self.batch_size, self.M_mat.shape[0]], dtype=torch.float64, requires_grad=True).to(
+        # v = torch.zeros([self.batch_size, self.M_mat.shape[0]], dtype=torch.float64, requires_grad=True).to(
+        #     self.M_mat.device)
+        # x = torch.zeros([self.batch_size, self.M_mat.shape[0]], dtype=torch.float64, requires_grad=True).to(
+        #     self.M_mat.device)
+        v = torch.zeros([self.M_mat.shape[0]]).to(
             self.M_mat.device)
-        x = torch.zeros([self.batch_size, self.M_mat.shape[0]], dtype=torch.float64, requires_grad=True).to(
+        x = torch.zeros([self.M_mat.shape[0]]).to(
             self.M_mat.device)
 
         xs = []
+        if output_v:
+            vs = []
 
         for i in tqdm(range(num_step)):
             t = i * self.dt
@@ -204,8 +210,13 @@ class WaveSolver():
             x = x + self.dt / 6 * (l1 + 2 * l2 + 2 * l3 + l4)
 
             xs.append(x)
-
-        return torch.stack(xs, dim=0)
+            if output_v:
+                vs.append(v)
+                
+        if output_v:
+            return torch.stack(xs, dim=0), torch.stack(vs, dim=0)
+        else:        
+            return torch.stack(xs, dim=0)
 
 
 class ModalWaveSolver():
