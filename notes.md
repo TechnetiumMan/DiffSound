@@ -113,6 +113,12 @@ RNN？进去一个seq，出来一个seq，可以attention？
 
 方案1是肯定不行的，在200个顶点的网格中迭代182次即爆显存！因此只能使用方案2.
 
+07xx
+启用adjoint method！
+
+0801
+我发现$\frac{\partial f}{\partial b}$异常的大！
+
 
 
 

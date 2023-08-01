@@ -49,6 +49,14 @@
             "justMyCode": true
         },
         {
+            "name": "check_adjoint_simple",
+            "type": "python",
+            "request": "launch",
+            "program": "test/check_adjoint_method_simple.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "CUDA-python-test",
             "type": "cppdbg",
             "request": "launch",
