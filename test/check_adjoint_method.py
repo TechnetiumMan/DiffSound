@@ -6,24 +6,31 @@ from src.solve import WaveSolver
 from src.adjoint import AdjointSolver, calculate_A_b_grad
 
 # 从最简单的例子开始：一维振动！
-num_step = 500
-dt = 0.001
-theta = torch.tensor([1.], requires_grad=True, device="cuda:0")
-M = torch.tensor([[0.]]).cuda()
-M = M + theta
-C = torch.tensor([[0.]]).cuda()
-K = torch.tensor([[1.]]).cuda()
+num_step = 1000
+dt = 0.01
+theta = torch.tensor([2., 1., 3.], requires_grad=True, device="cuda:0")
+
+# 来点更复杂的情况：两个点！ num_point = 2
+M_origin = torch.diag(torch.tensor([1., 1.])).cuda()
+M = M_origin * theta[0]
+# M = torch.zeros((2, 2)).cuda()
+# M[0, 0] = theta[0]
+# M[1, 1] = theta[1]
+C = torch.zeros((2, 2)).cuda()
+C[0, 0] = theta[1]
+K = torch.diag(torch.tensor([1., 1.])).cuda()
+K[1, 1] = theta[2]
 
 # time-dependent force for the displacement
-f = torch.zeros([num_step + 1, 1]).cuda() 
+f = torch.zeros([num_step + 1, 2]).cuda()  # (num_step, num_point)
 # force in timestep 1 instead of 0, 
 # because force in timestep 0 in RK4 only work a half.
-f[1, 0] = 1. / dt # fixed, with no grad.
+f[1] = 1. / dt # fixed, with no grad.
 def loss(predict):
-    return torch.sum(predict) * dt
+    return torch.sum(torch.abs(predict)) * dt
 
-# 使用RK4算法计算predict以及loss
-def C_matvec(x): return torch.zeros_like(x).cuda()
+# 使用RK4算法计算predict以及loss, 利用pytorch的自动微分计算梯度
+def C_matvec(x): return C @ x
 def K_matvec(x): return K @ x
 def get_force(t): 
     # 存在t是dt的半整数倍的情况，此时需要判断，并返回前后两个值的平均值
@@ -37,21 +44,26 @@ def get_force(t):
     
 solver = WaveSolver(M.to_sparse(), C_matvec, K_matvec, get_force, dt)
 u, v = solver.solve(num_step, output_v=True)  # (num_step, num_point)
-predict = torch.sum(u, dim=1)
-loss_origin = loss(predict)
+loss_origin = loss(u)
 loss_origin.backward()
 print(theta.grad)
 theta.grad.data.zero_()
 
 # 使用adjoint方法直接计算梯度
 # 首先获得MCK对theta的梯度
-dM = torch.tensor([[[1.]]]).cuda() # (num_theta, num_points, num_points)
-dC = torch.tensor([[[0.]]]).cuda()
-dK = torch.tensor([[[0.]]]).cuda()
+dM = torch.zeros((3, 2, 2)).cuda() # (num_theta, num_points, num_points)
+dM[0] = M_origin
+dC = torch.zeros((3, 2, 2)).cuda()
+dC[1, 0, 0] = 1.
+dK = torch.zeros((3, 2, 2)).cuda()
+dK[2, 1, 1] = 1.
 A, dA, b, db = calculate_A_b_grad(M, C, K, dM, dC, dK, f[:num_step])
 
 # calculate dg_dx
-dg_du = torch.ones_like(u).cuda()
+# dg_du = torch.ones_like(u).cuda()
+ones = torch.ones_like(u).cuda()
+dg_du = torch.where(u > 0, ones, -ones)
+
 dg_dv = torch.zeros_like(v).cuda()
 dg_dx = torch.cat([dg_dv, dg_du], dim=1).T
 
