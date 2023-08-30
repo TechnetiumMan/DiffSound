@@ -101,7 +101,7 @@ model.eigen_decomposition(freq=freq_limit)
 # now because of freq limit, the real eigen num != the argument eigen_num.
 # so we need to update the eigen_num to real value
 eigen_num = model.U_hat.shape[1]
-model.step_init(gt_forces, 1./(sample_rate * upsample), audio_num, sample_rate, eigen_num, freq_nonlinear, damp_nonlinear)
+model.nonlinear_step_init(gt_forces, 1./(sample_rate * upsample), audio_num, sample_rate, eigen_num, freq_nonlinear, damp_nonlinear)
 
 # Create the optimizer and scheduler
 optimizer_model = Adam(model.parameters(), lr=2e-2)

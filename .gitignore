@@ -11,3 +11,4 @@ events.out.tfevents.*
 *.pth
 runs
 experiments/specs
+nvdiffrec

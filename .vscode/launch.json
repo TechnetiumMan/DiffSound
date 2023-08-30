@@ -41,6 +41,15 @@
             "justMyCode": true
         },
         {
+            "name": "adjoint",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/adjoint_method.py",
+            "args": ["experiments/configs/30_2_mat_adjoint.ini"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "check_adjoint",
             "type": "python",
             "request": "launch",

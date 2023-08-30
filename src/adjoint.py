@@ -79,7 +79,7 @@ class AdjointSolver():
                 df_dtheta += db_dtheta # df_db are identity
             
             add_term = self.lbd[:, i] @ df_dtheta
-            dL_dtheta += add_term * self.dt # integration!
+            dL_dtheta += add_term # * self.dt # integration!
             
         return dL_dtheta
     

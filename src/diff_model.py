@@ -34,6 +34,13 @@ class TrainableLinear(nn.Module):
         self.youngs = WeightedParam(self.youngs_list)
         self.poisson = WeightedParam(self.poisson_list)
         self.mat = mat
+        
+    def get_value(self):
+        self.youngs_value = self.youngs()
+        self.poisson_value = self.poisson()
+        # keep its grad for comparison with adjoint method
+        self.youngs_value.retain_grad()
+        self.poisson_value.retain_grad()
 
     def forward(self, F: torch.Tensor):
         """
@@ -49,21 +56,52 @@ class TrainableLinear(nn.Module):
 
     def get_stress(self, F):
         lame_lambda = (
-            self.youngs()
-            * self.poisson()
-            / ((1 + self.poisson()) * (1 - 2 * self.poisson()))
+            self.youngs_value
+            * self.poisson_value
+            / ((1 + self.poisson_value) * (1 - 2 * self.poisson_value))
         )
-        lame_mu = self.youngs() / (2 * (1 + self.poisson()))
+        lame_mu = self.youngs_value / (2 * (1 + self.poisson_value))
         stress = lame_mu * (F + F.transpose(1, 2)) + lame_lambda * batch_trace(
             F
         ).unsqueeze(-1).unsqueeze(-1) * torch.eye(3, device=F.device)
         return stress
-
-    def jacobian(self):
+    
+    # jacobian for Piola tensor d(stress)/d(F_input)
+    def jacobian_F(self):
         inputs = torch.zeros(1, 3, 3).cuda().double()
         mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
         return mat
-
+    
+    # this function is getting B from theta, for getting dB/d(theta)
+    def get_stress_theta(self, F):
+        # F = torch.zeros(1, 3, 3).cuda().double()
+        youngs = self.theta[0]
+        poisson = self.theta[1]
+        lame_lambda = (
+            youngs
+            * poisson
+            / ((1 + poisson) * (1 - 2 * poisson))
+        )
+        lame_mu = youngs / (2 * (1 + poisson))
+        stress = lame_mu * (F + F.transpose(1, 2)) + lame_lambda * batch_trace(
+            F
+        ).unsqueeze(-1).unsqueeze(-1) * torch.eye(3, device=F.device)
+        return stress
+    
+    def get_B_from_theta(self, theta):
+        self.theta = theta
+        inputs = torch.zeros(1, 3, 3).cuda().double()
+        B = torch.autograd.functional.jacobian(self.get_stress_theta, inputs)
+        return B
+    
+    # jacobian for dB/d(theta)
+    def jacobian_dB_dtheta(self):
+        youngs = self.youngs_value
+        poisson = self.poisson_value
+        theta = torch.stack([youngs, poisson]).cuda().double()
+        mat = torch.autograd.functional.jacobian(self.get_B_from_theta, theta)
+        return mat
+    
 
 class TrainableNeohookean(nn.Module):
     def __init__(self, mat: Material, bin_num=16):
@@ -107,7 +145,8 @@ class TrainableNeohookean(nn.Module):
         )
         return stress1 + stress2
 
-    def jacobian(self):
+    # jacobian for Piola tensor d(stress)/d(F_input)
+    def jacobian_F(self):
         inputs = torch.zeros(1, 3, 3).cuda().double()
         mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
         return mat
@@ -247,6 +286,7 @@ class DiffSoundObj:
         )
         self.scale = torch.eye(3, dtype=torch.float64).cuda()
         self.origin_mass_matrix = self.mass_matrix.clone()
+        self.material_model.get_value() # new add: get youngs and poisson value with grad!
         
     def init_shape(self, scale_range):
         self.scale_model = TrainableScale(scale_range=scale_range).cuda()
@@ -287,7 +327,10 @@ class DiffSoundObj:
             N = self.deform.num_nodes_per_tet
             batch_size = self.deform.num_tets * self.deform.num_guass_points
             SFDT = self.deform.shape_func_deriv.transpose(1, 2)
-            B = self.material_model.jacobian().reshape(1, 9, 9).double()
+            
+            # jacobian for Piola tensor d(stress)/d(F_input)
+            B = self.material_model.jacobian_F().reshape(1, 9, 9).double()
+            
             stress_index = self.deform.stress_index.reshape(batch_size, 3 * N)
             batch_num = batch_size // assemble_batch_size
             idxs = torch.linspace(0, batch_size, batch_num + 1).long()
@@ -316,13 +359,61 @@ class DiffSoundObj:
                     indices, values.reshape(-1), shape
                 )
                 self.stiff_matrix = self.stiff_matrix.coalesce()
+                
+    # for getting dK/dtheta, we get dB/dtheta and dK/dB
+    def update_stiff_matrix_from_B(self, B):
+        assemble_batch_size=20000
+        with torch.no_grad():
+            N = self.deform.num_nodes_per_tet
+            batch_size = self.deform.num_tets * self.deform.num_guass_points
+            SFDT = self.deform.shape_func_deriv.transpose(1, 2)
+            
+            # # jacobian for Piola tensor d(stress)/d(F_input)
+            # B = self.material_model.jacobian_F().reshape(1, 9, 9).double()
+            
+            stress_index = self.deform.stress_index.reshape(batch_size, 3 * N)
+            batch_num = batch_size // assemble_batch_size
+            idxs = torch.linspace(0, batch_size, batch_num + 1).long()
+            shape = self.mass_matrix.shape
+            self.stiff_matrix = torch.sparse_coo_tensor(
+                shape, dtype=torch.double
+            ).cuda()
+            for i in range(batch_num):
+                start = idxs[i]
+                end = idxs[i + 1]
+                A = torch.zeros(end - start, 9, 3 * N).cuda().double()
+                A[:, :3, 0::3] = SFDT[start:end]
+                A[:, 3:6, 1::3] = SFDT[start:end]
+                A[:, 6:9, 2::3] = SFDT[start:end]
+                values = (A.transpose(1, 2) @ B @ A) * self.deform.integration_weights[
+                    start:end
+                ]
+                rows = (
+                    stress_index[start:end].unsqueeze(2).repeat(1, 1, 3 * N).reshape(-1)
+                )
+                cols = (
+                    stress_index[start:end].unsqueeze(1).repeat(1, 3 * N, 1).reshape(-1)
+                )
+                indices = torch.stack([rows, cols], dim=0).long()
+                self.stiff_matrix = self.stiff_matrix + torch.sparse_coo_tensor(
+                    indices, values.reshape(-1), shape
+                )
+                self.stiff_matrix = self.stiff_matrix.coalesce()
+                
+    def jacobian_dK_dtheta(self):
+        with torch.no_grad():
+            B = self.material_model.jacobian_F().reshape(1, 9, 9).double()
+            dK_dB = torch.autograd.functional.jacobian(self.update_stiff_matrix_from_B, B)
+            dB_dtheta = self.material_model.jacobian_dB_dtheta()
+            dK_dtheta = torch.einsum('ijk,klm->ijlm', dK_dB, dB_dtheta)
+            return dK_dtheta
 
-    def check_stiff_matrix(self):
-        self.update_stiff_matrix()
-        u0 = torch.randn(self.mass_matrix.shape[0], 8).cuda().double()
-        y1 = self.stiff_func(u0)
-        y2 = self.stiff_matrix @ u0
-        assert torch.allclose(y1, y2)
+    # def check_stiff_matrix(self):
+    #     self.update_stiff_matrix()
+    #     u0 = torch.randn(self.mass_matrix.shape[0], 8).cuda().double()
+    #     y1 = self.stiff_func(u0)
+    #     y2 = self.stiff_matrix @ u0
+    #     assert torch.allclose(y1, y2)
 
     def stiff_func(self, x_in: torch.Tensor):
         # the input may be (point_num*3, modes) or (point_num*3)
@@ -358,7 +449,7 @@ class DiffSoundObj:
                 if freq:
                     eigenvalue_limit = (freq * 2 * 3.14159) ** 2
                     mask = self.eigenvalues < eigenvalue_limit
-                    self.eigenvaluse = self.eigenvalues[mask]
+                    self.eigenvalues = self.eigenvalues[mask]
                     self.U_hat_full = self.U_hat_full[:, mask]
                     self.U_hat = self.U_hat_full[:, 6:]
             
@@ -538,8 +629,35 @@ class DiffSoundObj:
         target_importance = 1.0 / (damps + eps)
         return self.set2set_loss(kl, weights, target_importance) + loss_base * alpha
     
-    # for our new step model, RK4 forward is needed
-    def step_init(self, force, dt, audio_num, sr, mode_num, freq_nonlinear, damp_nonlinear):
+    # linear RK4 forward
+    def linear_step_init(self, force, dt, audio_num, sr, mode_num):
+        self.mode_num = mode_num # update it to real value restricted by freq limit
+        def stiff_matvec(x: torch.Tensor): 
+            return self.grad_eigenvalues * x
+        
+        # using adjoint method will save memory and code below can be run. but for test, we don't need it
+        # def stiff_func_matvec(x: torch.Tensor): 
+        #     result = (self.U_hat.T @ self.stiff_func(self.U_hat @ x.T)).T
+        #     return result 
+            
+        def damping_matvec(v): 
+            damping = (self.mat.alpha + self.mat.beta * self.grad_eigenvalues) * v # damping need grad too!
+            return damping
+        
+        def get_force(t):
+            t_int = int(t * sr)
+            cnt_f = force[:, t_int]
+            f = torch.zeros([cnt_f.shape[0], self.U_hat.shape[0]], dtype=torch.float64).cuda() # (sound_num, point_num)
+            f[:, 0] = cnt_f 
+            # U_hat: (point_num, mode_num)
+            f = f @ self.U_hat # (sound_num, mode_num)
+            return f
+
+        self.solver = WaveSolver("identity", damping_matvec,
+                            stiff_matvec, get_force, dt, batch_size=audio_num)
+    
+    # nonlinear RK4 forward 
+    def nonlinear_step_init(self, force, dt, audio_num, sr, mode_num, freq_nonlinear, damp_nonlinear):
         self.mode_num = mode_num # update it to real value restricted by freq limit
         self.freq_nonlinear = freq_nonlinear
         self.stiffness_net = TinyNN(mode_num, 16, mode_num).cuda()
@@ -568,7 +686,7 @@ class DiffSoundObj:
             t_int = int(t * sr)
             cnt_f = force[:, t_int]
             f = torch.zeros([cnt_f.shape[0], self.U_hat.shape[0]], dtype=torch.float64).cuda() # (sound_num, point_num)
-            f[:, 0] = cnt_f 
+            f[:, 0] = cnt_f # (sound_num, point_num), the force only give to point 0
             # U_hat: (point_num, mode_num)
             f = f @ self.U_hat # (sound_num, mode_num)
             return f

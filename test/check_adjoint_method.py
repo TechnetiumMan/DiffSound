@@ -1,21 +1,16 @@
 import sys
 sys.path.append('./')
 import torch
-import numpy as np
 from src.solve import WaveSolver
 from src.adjoint import AdjointSolver, calculate_A_b_grad
 
-# 从最简单的例子开始：一维振动！
-num_step = 1000
-dt = 0.01
+num_step = 5000
+dt = 0.001
 theta = torch.tensor([2., 1., 3.], requires_grad=True, device="cuda:0")
 
 # 来点更复杂的情况：两个点！ num_point = 2
-M_origin = torch.diag(torch.tensor([1., 1.])).cuda()
+M_origin = torch.diag(torch.tensor([2., 1.])).cuda()
 M = M_origin * theta[0]
-# M = torch.zeros((2, 2)).cuda()
-# M[0, 0] = theta[0]
-# M[1, 1] = theta[1]
 C = torch.zeros((2, 2)).cuda()
 C[0, 0] = theta[1]
 K = torch.diag(torch.tensor([1., 1.])).cuda()
@@ -27,7 +22,7 @@ f = torch.zeros([num_step + 1, 2]).cuda()  # (num_step, num_point)
 # because force in timestep 0 in RK4 only work a half.
 f[1] = 1. / dt # fixed, with no grad.
 def loss(predict):
-    return torch.sum(torch.abs(predict)) * dt
+    return torch.sum(torch.abs(predict))
 
 # 使用RK4算法计算predict以及loss, 利用pytorch的自动微分计算梯度
 def C_matvec(x): return C @ x

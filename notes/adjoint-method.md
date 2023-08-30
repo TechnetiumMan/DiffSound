@@ -100,5 +100,27 @@ $\frac{\partial f}{\partial b}=1$
 
 总而言之，上述计算只需要存储每个时刻的x(t)与预计算梯度$\frac{\partial A}{\partial \theta}$,其空间复杂度为$O(n_tn+n_\theta n^2)$,远低于梯度反传方法记录每个矩阵每个时刻梯度所需$O(n_tn^2)$。
 
+#### 与model reduction的结合
+model reduction:
+$K_0U = M_0US$
+其中$M_0, K_0$是原始质量矩阵与刚度矩阵，U是广义特征向量矩阵,S是特征值对角矩阵,满足
+$U^T M_0U = I, U^TK_0U = S$
+对$u=Uq$，
+振动方程由
+$M_0\ddot u + C_0\dot u + K_0u = f(t)$
+化为：
+$\ddot q + (αI + βS)\dot q + Sq = U^T f(t)$.
+此时有：
+$M=I,C=αI + βS, K=S$
+$\frac{\partial M}{\partial \theta}=0,\frac{\partial C}{\partial \theta}=\beta \frac{\partial S}{\partial \theta},
+\frac{\partial K}{\partial \theta}=\frac{\partial S}{\partial \theta}$
+
+关于$\frac{\partial S}{\partial \theta}$的计算，注意到我们原来处理特征值的梯度的方法：
+$\frac{\partial \lambda_i}{\partial \theta} = u_i^T(\frac{\partial K_0}{\partial \theta}-\lambda_i\frac{\partial M_0}{\partial \theta})u_i$
+即：
+$\frac{\partial S}{\partial \theta} = (U^T\frac{\partial K_0}{\partial \theta}U)-(U^T\frac{\partial M_0}{\partial \theta}U)S$
+问题：上面一步推导要求$U^T\frac{\partial K_0}{\partial \theta}U和U^T\frac{\partial M_0}{\partial \theta}U$是对角矩阵，是这样吗？
+
+
 
 
