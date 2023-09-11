@@ -5,7 +5,7 @@ src/__pycache__
 assets/
 **.pt
 saves
-data
+/data
 *.mp3
 events.out.tfevents.*
 *.pth

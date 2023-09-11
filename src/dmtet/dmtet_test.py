@@ -167,18 +167,10 @@ class DMTet:
             inner_tets_bool = (occ_sum == 4) # 每个四面体是否在内部
             inner_tets = tet_fx4[inner_tets_bool] # 所有内部四面体中顶点的下标
             
-            all_tets = torch.cat([side_tets, inner_tets], dim=0)
-            
-            # 对所有内部四面体中所有顶点重新从0开始编号，并返回新编号的四面体与其顶点坐标
-        #     inner_unique_verts, inner_verts_idx_map = torch.unique(inner_tets.reshape(-1), return_inverse=True) # 所有内部四面体中所有顶点的下标, 已去重
-            
-        #     inner_tets_new = inner_verts_idx_map.reshape(-1, 4) # 新编号的所有内部四面体中所有顶点的下标
-            
-        # # 将原顶点对应到新编号顶点上(注意pos_nx3是有梯度的)
-        # inner_verts_new = pos_nx3[inner_unique_verts] # 新编号的所有内部四面体中所有顶点的坐标
+            all_tets = torch.cat([side_tets, inner_tets], dim=0) # 将两类四面体放在一起
         
-        # 注意此时的顶点是包含没有被用上的点的，这些点必须被去掉，否则质量矩阵会非满秩，无法计算特征值
-        all_unique_tets, all_unique_verts_idx_map = torch.unique(all_tets.reshape(-1), return_inverse=True) # 所有内部四面体中所有顶点的下标, 已去重
+        # 注意此时的all_verts是包含没有被用上的点的，这些点必须被去掉，否则质量矩阵会非满秩，无法计算特征值, 以下是去除其中没有被all_tets包含的顶点的操作
+        all_unique_tets, all_unique_verts_idx_map = torch.unique(all_tets.reshape(-1), return_inverse=True) 
         all_tets_result = all_unique_verts_idx_map.reshape(-1, 4)
         all_verts_result = all_verts[all_unique_tets]
             
