@@ -7,7 +7,7 @@ from src.mesh import TetMesh
 from src.deform import Deform
 from src.visualize import viewer
 
-res = 32
+res = 4
 num_iter = 10000
 DMTet = DMTetGeometry(res=res, iter=num_iter)
 verts, tets = DMTet.getMesh()
