@@ -16,7 +16,7 @@ col_layout = Layout(
 
 
 class viewer():
-    def __init__(self, vertices, elements, data=None, show_axis=False, title='', intensitymode='cell'):
+    def __init__(self, vertices, elements, data=None, show_axis=False, title='', intensitymode='cell', draw_tet=False):
         '''
         Shape of parameters:
         vertices    [node_num, 3]
@@ -29,6 +29,7 @@ class viewer():
         self.vertices, self.elements, self.data = vertices.T, elements.T, data
         self.intensitymode = intensitymode
         self._in_batch_mode = False
+        self.draw_tet = draw_tet
         if self.data is None:
             self.items = [self.init_3D()]
         else:
@@ -57,6 +58,18 @@ class viewer():
         self.fig.data[0].intensity = []
 
     def init_3D(self):
+        
+        # 注意：原代码elements只用来画三角形，其只取输入的前三个维度画，若强行输入四面体，则会只画四面体的第一个面！
+        # 如果我们想画四面体，就要把四面体的四个面都画上！即：elements = [0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]的组合
+        if self.draw_tet:
+            i = np.concatenate([self.elements[0], self.elements[0], self.elements[0], self.elements[1]])
+            j = np.concatenate([self.elements[1], self.elements[1], self.elements[2], self.elements[2]])
+            k = np.concatenate([self.elements[2], self.elements[3], self.elements[3], self.elements[3]])
+        else:
+            i = self.elements[0]
+            j = self.elements[1]
+            k = self.elements[2]
+        
         bound_max = self.vertices.max()
         bound_min = self.vertices.min()
         if self.data is None:
@@ -68,9 +81,9 @@ class viewer():
                     # intensity=self.data[0],
                     # intensitymode='cell',
                     # colorscale='Jet',
-                    i=self.elements[0],
-                    j=self.elements[1],
-                    k=self.elements[2],
+                    i=i,
+                    j=j,
+                    k=k,
                     showlegend=self.show_axis,
                     showscale=True,
                 )
@@ -85,9 +98,9 @@ class viewer():
                     intensity=self.data[0],
                     intensitymode=self.intensitymode,
                     colorscale='Jet',
-                    i=self.elements[0],
-                    j=self.elements[1],
-                    k=self.elements[2],
+                    i=i,
+                    j=j,
+                    k=k,
                     showlegend=self.show_axis,
                     showscale=True,
                 )

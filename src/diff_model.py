@@ -1,8 +1,5 @@
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-import torch.autograd.functional as AF
-import matplotlib.pyplot as plt
 import numpy as np
 from .material_model import TinyNN, LinearElastic, MatSet, Material
 from .utils import load_audio, dense_to_sparse, LOBPCG_solver_freq, normalize_input
@@ -100,6 +97,42 @@ class TrainableLinear(nn.Module):
         poisson = self.poisson_value
         theta = torch.stack([youngs, poisson]).cuda().double()
         mat = torch.autograd.functional.jacobian(self.get_B_from_theta, theta)
+        return mat
+
+# linear elastic without any trainable args
+class FixedLinear(nn.Module):
+    def __init__(self, mat: Material):
+        self.youngs = mat.youngs / mat.density
+        self.poisson = mat.poisson
+        self.mat = mat
+        
+    def forward(self, F: torch.Tensor):
+        """
+        Piola stress
+        F: deformation gradient with shape (batch_size, node_size, 3, 3)
+        return: stress with shape (batch_size, node_size, 3, 3)
+        """
+        batch_size, node_size, _, _ = F.shape
+        F = F.reshape(batch_size * node_size, 3, 3)
+        stress = self.get_stress(F)
+        return stress.reshape(batch_size, node_size, 3, 3)
+    
+    def get_stress(self, F):
+        lame_lambda = (
+            self.youngs
+            * self.poisson
+            / ((1 + self.poisson) * (1 - 2 * self.poisson))
+        )
+        lame_mu = self.youngs / (2 * (1 + self.poisson))
+        stress = lame_mu * (F + F.transpose(1, 2)) + lame_lambda * batch_trace(
+            F
+        ).unsqueeze(-1).unsqueeze(-1) * torch.eye(3, device=F.device)
+        return stress
+    
+    # jacobian for Piola tensor d(stress)/d(F_input)
+    def jacobian_F(self):
+        inputs = torch.zeros(1, 3, 3).cuda().double()
+        mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
         return mat
     
 
@@ -221,13 +254,14 @@ class DiffSoundObj:
         mat=MatSet.Ceramic,
         mat_model=TrainableLinear,
         task="material",
+        mass_matrix_grad=False
     ):
         """
         mesh_dir: the directory of the mesh
         audio_dir: the directory of the audio
         mat: the material of the object
         """
-        if mesh_dir:
+        if mesh_dir is not None:
             self.mesh_dir = mesh_dir
             self.tetmesh = TetMesh.from_triangle_mesh(
                 mesh_dir + "model.stl"
@@ -237,8 +271,13 @@ class DiffSoundObj:
             self.tetmesh = TetMesh(vertices, tets).to_high_order(order)
 
         self.deform = Deform(self.tetmesh)
-        self.material_model = mat_model(Material(mat))
-        self.mass_matrix = self.tetmesh.compute_mass_matrix(density=1.0)
+        if mat_model:
+            self.material_model = mat_model(Material(mat))
+        if mass_matrix_grad:
+            # for using DMTet to optimize shape, we must keep grad when calculate mass matrix
+            self.mass_matrix = self.tetmesh.compute_mass_matrix(density=1.0, grad=True)
+        else:
+            self.mass_matrix = self.tetmesh.compute_mass_matrix(density=1.0)
         self.mode_num = mode_num
         self.U_hat_full = None
         self.first_epoch = True
@@ -323,7 +362,7 @@ class DiffSoundObj:
         self.tetmesh._transform_matrix = (self.origin_transform_matrix.transpose(1, 2) @ scale).transpose(1, 2)
 
     def update_stiff_matrix(self, assemble_batch_size=20000):
-        with torch.no_grad():
+        # with torch.no_grad():
             N = self.deform.num_nodes_per_tet
             batch_size = self.deform.num_tets * self.deform.num_guass_points
             SFDT = self.deform.shape_func_deriv.transpose(1, 2)
@@ -332,6 +371,11 @@ class DiffSoundObj:
             B = self.material_model.jacobian_F().reshape(1, 9, 9).double()
             
             stress_index = self.deform.stress_index.reshape(batch_size, 3 * N)
+            
+            # for small batch_size, use assemble_batch_size = 1
+            if batch_size < assemble_batch_size:
+                assemble_batch_size = batch_size
+            
             batch_num = batch_size // assemble_batch_size
             idxs = torch.linspace(0, batch_size, batch_num + 1).long()
             shape = self.mass_matrix.shape
@@ -432,26 +476,31 @@ class DiffSoundObj:
         return force
 
     def eigen_decomposition(self, native=False, load=False, save=False, freq=None, grad=False):
-        with torch.no_grad():
+        # with torch.no_grad():
             if native:
                 self.eigen_decomposition_native()
                 return
-            self.update_stiff_matrix()
+            if grad:
+                self.update_stiff_matrix()
+            else:
+                with torch.no_grad():
+                    self.update_stiff_matrix()
             
             if load:
                 self.U_hat_full, self.U_hat, self.eigenvalues = torch.load("saves/eigen.pt")
             else:
-                if self.U_hat_full is None:
-                    self.eigen_decomposition_arpack()
-                else:
-                    self.eigen_decomposition_torch()
+                with torch.no_grad():
+                    if self.U_hat_full is None:
+                        self.eigen_decomposition_arpack()
+                    else:
+                        self.eigen_decomposition_torch()
                 
                 if freq:
                     eigenvalue_limit = (freq * 2 * 3.14159) ** 2
                     mask = self.eigenvalues < eigenvalue_limit
                     self.eigenvalues = self.eigenvalues[mask]
                     self.U_hat_full = self.U_hat_full[:, mask]
-                    self.U_hat = self.U_hat_full[:, 6:]
+                    self.U_hat = self.U_hat_full[:, self.zero_eigens:]
             
             if save:
                 torch.save([self.U_hat_full, self.U_hat, self.eigenvalues], "saves/eigen.pt")
@@ -461,13 +510,13 @@ class DiffSoundObj:
             S, U_hat_full = lobpcg_func(
                 self.stiff_func,
                 self.mass_matrix,
-                self.mode_num + 6,
+                self.mode_num + self.zero_eigens,
                 X=self.U_hat_full,
                 largest=False,
                 niter=2000,
             )
         self.U_hat_full = U_hat_full
-        self.U_hat = U_hat_full[:, 6:]
+        self.U_hat = U_hat_full[:, self.zero_eigens:]
         self.eigenvalues = S
 
     def eigen_decomposition_torch(self):
@@ -475,14 +524,27 @@ class DiffSoundObj:
             S, U_hat_full = lobpcg_func(
                 self.stiff_matrix,
                 self.mass_matrix,
-                self.mode_num + 6,
+                self.mode_num + self.zero_eigens,
                 X=self.U_hat_full if self.U_hat_full is not None else None,
                 largest=False,
                 niter=2000,
             )
-        self.U_hat_full = U_hat_full
-        self.U_hat = U_hat_full[:, 6:]
-        self.eigenvalues = S
+        
+        # notice that zero eigenvalues may change during SDF training, we need to check if it is changed
+        threshold = 1.
+        for i in range(len(S)):
+            if S[i] > threshold:
+                break
+        new_zero_eigens = i
+        if new_zero_eigens != self.zero_eigens:
+            print("re calculate eigen")
+            self.eigen_decomposition_arpack() # old U and S can not be used, have to re-calculate eigenvalue from scratch
+            # and in arpack, self.zero_eigens will change
+            
+        else:
+            self.U_hat_full = U_hat_full
+            self.U_hat = U_hat_full[:, self.zero_eigens:]
+            self.eigenvalues = S
 
     def eigen_decomposition_arpack(self):
         stiff_mat = scipy.sparse.coo_matrix(
@@ -508,27 +570,48 @@ class DiffSoundObj:
         S, U_hat_full = scipy.sparse.linalg.eigsh(
             stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=0
         )
-        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().double()
-        self.U_hat = torch.from_numpy(U_hat_full[:, 6:]).cuda().double()
-        self.eigenvalues = torch.from_numpy(S).cuda().double()
+        
         # print("eigenvalues: ", self.eigenvalues)
+        
+        # notice that zero eigenvalues may be more than 6 when there are some discrete tets,
+        # so we have to count how many zero eigenvalues
+        threshold = 1.
+        for i in range(len(S)):
+            if S[i] > threshold:
+                break
+        if(i == len(S)):
+            raise ValueError("all eigenvalues are zero!!!")
+        self.zero_eigens = i
+        
+        # and then, to make sure mode_num is constant, we have to re-calculate eigenvalues use k = self.mode_num + self.zero_eigens
+        if self.zero_eigens > 6:
+            S, U_hat_full = scipy.sparse.linalg.eigsh(
+                stiff_mat, M=mass_mat, k=self.mode_num + self.zero_eigens, sigma=0
+            )
+            
+        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().double()
+        self.eigenvalues = torch.from_numpy(S).cuda().double()
+        self.U_hat = torch.from_numpy(U_hat_full[:, self.zero_eigens:]).cuda().double()
 
-    def get_undamped_freqs(self, sample_num = 1):
+    def get_undamped_freqs(self, sample_num = 1, matrix_grad=False):
         if self.task == "shape":
             self.update_shape()
 
         predict = torch.zeros(self.mode_num).cuda()
-        predict += self.eigenvalues[6:] # (mode_num)
+        predict += self.eigenvalues[self.zero_eigens:] # (mode_num)
 
         idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
         U = self.U_hat[:, idxs] # (n, sample_num)
-        vals = self.eigenvalues[6:][idxs]
+        vals = self.eigenvalues[self.zero_eigens:][idxs]
         if self.task == "shape":
             mass_k = torch.linalg.det(self.scale)
         else:
             mass_k = 1
         if self.task != "gt":
-            add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * mass_k * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
+            if not matrix_grad:
+                add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * mass_k * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
+            else: # in dmtet
+                add_term = (U.T @ (self.stiff_matrix @ U)).diagonal() - vals * (U.T @ (self.mass_matrix @ U)).diagonal()
             predict[idxs] += add_term
         predict = torch.sqrt(predict) / 2 / np.pi
         return predict.unsqueeze(1)
@@ -572,7 +655,7 @@ class DiffSoundObj:
         #     self.pretrain_material(base_eigenvalue_from_data / base_eigenvalue)
         #     self.first_epoch = False
 
-        mode_amp = (force / force_sample_rate) * torch.abs(self.U_hat).mean(0) / (self.eigenvalues[6:] ** 0.5)
+        mode_amp = (force / force_sample_rate) * torch.abs(self.U_hat).mean(0) / (self.eigenvalues[self.zero_eigens:] ** 0.5)
         while True:
             x = torch.rand(self.mode_num, sample_num, dtype=torch.float64).cuda() * 2 - 1
             x[x >= 0] += eps
@@ -706,18 +789,18 @@ class DiffSoundObj:
     def get_grad_eigenvalues(self, sample_num = None):
         
         predict = torch.zeros(self.mode_num).cuda()
-        predict += self.eigenvalues[6:] # (mode_num)
+        predict += self.eigenvalues[self.zero_eigens:] # (mode_num)
         
         if sample_num is None: # use all modes for sample
             sample_num = self.mode_num
             U = self.U_hat
-            vals = self.eigenvalues[6:]
+            vals = self.eigenvalues[self.zero_eigens:]
             add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
             predict += add_term
         else: # random choose some modes for sample
             idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
             U = self.U_hat[:, idxs] # (n, sample_num)
-            vals = self.eigenvalues[6:][idxs]
+            vals = self.eigenvalues[self.zero_eigens:][idxs]
             add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * (U.T @ (self.origin_mass_matrix @ U)).diagonal()
             predict[idxs] += add_term
             

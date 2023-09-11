@@ -181,7 +181,7 @@ class TetMesh:
             self._transform_matrix = self._compute_transform_matrix()
         return self._transform_matrix
 
-    def compute_mass_matrix(self, density):
+    def compute_mass_matrix(self, density, grad=False):
         '''
         Return the mass matrix of the mesh(as a coo-sparse matrix).
         '''
@@ -198,12 +198,51 @@ class TetMesh:
             torch.float64).reshape(-1).contiguous().cuda()
         tets_cuda = self.tets.to(torch.int32).reshape(-1).contiguous().cuda()
         element_mm = get_elememt_mass_matrix(self.order)
-        mass_matrix_assembler(vertices_cuda, tets_cuda, values,
-                              rows, cols, element_mm, density, self.order)
-
-        # debug: change data type to float64
-        # values = values.double()
-
+        
+        
+        if not grad: # can use cuda code to calculate
+            mass_matrix_assembler(vertices_cuda, tets_cuda, values,
+                                rows, cols, element_mm, density, self.order)
+            
+        else: # we need grad for mass matrix, so just use pytorch
+            vnum_list = [4, 10, 20]
+            vnum = vnum_list[self.order - 1]
+            msize = vnum * 3
+            
+            idx_num = len(tets_cuda) // vnum
+            idx = torch.arange(0, idx_num, dtype=torch.int32).cuda()
+            tets_ptr = idx * vnum
+            
+            x = torch.zeros((idx_num, 4), dtype=torch.float64).cuda()
+            y = torch.zeros((idx_num, 4), dtype=torch.float64).cuda()
+            z = torch.zeros((idx_num, 4), dtype=torch.float64).cuda()
+            if self.order == 1:
+                for i in range(4):
+                    x[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3]
+                    y[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3 + 1]
+                    z[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3 + 2]
+            else:
+                raise NotImplementedError # TODO
+            
+            V = ((x[:, 1] - x[:, 0]) * ((y[:, 2] - y[:, 0]) * (z[:, 3] - z[:, 0]) - (y[:, 3] - y[:, 0]) * (z[:, 2] - z[:, 0])) +
+                (y[:, 1] - y[:, 0]) * ((z[:, 2] - z[:, 0]) * (x[:, 3] - x[:, 0]) - (z[:, 3] - z[:, 0]) * (x[:, 2] - x[:, 0])) +
+                (z[:, 1] - z[:, 0]) * ((x[:, 2] - x[:, 0]) * (y[:, 3] - y[:, 0]) - (x[:, 3] - x[:, 0]) * (y[:, 2] - y[:, 0])))
+            V = torch.abs(V)
+            
+            vid = torch.zeros((idx_num, vnum*3), dtype=torch.int32).cuda()
+            for i in range(vnum):
+                vid[:, i*3] = tets_cuda[tets_ptr + i] * 3
+                vid[:, i*3+1] = tets_cuda[tets_ptr + i] * 3 + 1
+                vid[:, i*3+2] = tets_cuda[tets_ptr + i] * 3 + 2
+                
+            # values[offset + i * msize + j] = m[i * msize + j] * d * V
+            offset = idx * msize * msize
+            for i in range(msize):
+                for j in range(msize):
+                    values[offset + i * msize + j] = element_mm[i * msize + j] * density * V[idx]
+                    rows[offset + i * msize + j] = vid[idx, i]
+                    cols[offset + i * msize + j] = vid[idx, j]
+            
         indices = torch.stack([rows, cols], dim=0).long()
         shape = torch.Size(
             [3 * self.vertices.shape[0], 3 * self.vertices.shape[0]])

@@ -66,6 +66,16 @@
             "justMyCode": true
         },
         {
+            "name": "check_dmtet",
+            "type": "python",
+            "request": "launch",
+            "program": "test/check_dmtet.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            // "args": ["--config", 
+            // "configs/bob_test.json"]
+        },
+        {
             "name": "CUDA-python-test",
             "type": "cppdbg",
             "request": "launch",

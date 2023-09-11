@@ -41,7 +41,7 @@ class TestObj():
             
         self.deform = Deform(self.tetmesh)
         self.mat = Material(mat)
-        self.mat_model = MatModel(self.mat.youngs, self.mat.poisson)
+        self.mat_model = MatModel(self.mat)
         self.mass_matrix = self.tetmesh.compute_mass_matrix(self.mat.density)
         self.mat_weights = None
     
@@ -65,7 +65,8 @@ class TestObj():
     def check_eigenvector(self, k):
         # fem = FEMmodel(self.tetmesh.vertices, self.tetmesh.tets, Material(MatSet.Ceramic))
         # self.eigenvalues, self.eigenvectors = LOBPCG_solver_test(fem.stiffness_matrix , self.mass_matrix, k=k) 
-        self.eigenvalues, self.eigenvectors = LOBPCG_solver_test(self.stiff_func , self.mass_matrix, k=k) 
+        with torch.no_grad():
+            self.eigenvalues, self.eigenvectors = LOBPCG_solver_test(self.stiff_func , self.mass_matrix, k=8) 
         U = self.eigenvectors
         S = self.eigenvalues
         print(S)
@@ -77,11 +78,13 @@ torch.set_printoptions(precision=8)
 if __name__ == '__main__':
 #     mesh_dir = '/data/xcx/mesh_data/full/2/'
     # audio_dir = '/data/xcx/audio_data/2/audio'
-    # vertices = torch.Tensor(
-    #     [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]).cuda()
-    # tets = torch.Tensor([[0, 1, 2, 3]]).long().cuda()
-    filename = "assets/spoon_smaller.txt"
-    vertices, tets = comsol_mesh_loader(filename)
+    vertices = torch.Tensor(
+        [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],[2, 0, 0], [3, 0, 0], [2, 1, 0], [2, 0, 1]]).cuda()
+    tets = torch.Tensor([[0, 1, 2, 3],[4, 5, 6, 7]]).long().cuda()
+    # filename = "assets/spoon_smaller.txt"
+    # vertices, tets = comsol_mesh_loader(filename)
+    # tetmesh = torch.load("tetmesh.pt")
+    # vertices, tets = tetmesh.vertices, tetmesh.tets
     # triangles = torch.Tensor([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]).long()
     # viewer(vertices.cpu(), triangles).show()
 
