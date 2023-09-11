@@ -15,10 +15,6 @@ $\frac{\partial L}{\partial p}=(\frac{\partial f}{\partial x}+\lambda \frac{\par
 $\frac{df}{dp}=\frac{\partial L}{\partial p}=\frac{\partial f}{\partial p}+\lambda \frac{\partial g}{\partial p}$
 （这是因为全导数$\frac{dg}{dp}=0$）
 
-![](../../image/101.png)
-![](../../image/102.png)
-
-
 ### 视频教程笔记
 https://www.youtube.com/watch?v=k6s2G5MZv-I
 我们设$u(t)$为系统中微分方程$\frac{du}{dt}=f(u,t,\theta)$的解（n维向量），$\theta$为系统参数，$J(u;\theta)=\int g(u;\theta)dt$为loss function，则loss关于系统参数的梯度可如下表示：
