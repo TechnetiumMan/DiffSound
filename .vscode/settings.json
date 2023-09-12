@@ -57,14 +57,8 @@
         "typeinfo": "cpp",
         "bit": "cpp"
     },
-    "spellright.language": [],
-    "spellright.documentTypes": [
-        "latex",
-        "plaintext"
-    ],
     "[python]": {
         "editor.defaultFormatter": "ms-python.python"
     },
-    "python.formatting.provider": "none",
     "python.analysis.typeCheckingMode": "off"
 }

@@ -19,7 +19,7 @@ def get_floating_dtype(A):
     Integer types map to float32.
     """
     dtype = A.dtype
-    if dtype in (torch.float16, torch.float32, torch.float64):
+    if dtype in (torch.float16, torch.float32, torch.float32):
         return dtype
     return torch.float32
 

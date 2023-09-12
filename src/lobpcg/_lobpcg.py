@@ -34,7 +34,7 @@ def lobpcg(A: Tensor,
     device = A.device
     if tol is None:
         feps = {torch.float32: 1.2e-07,
-                torch.float64: 2.23e-16}[dtype]
+                torch.float32: 2.23e-16}[dtype]
         tol = feps ** 0.5
 
     m = A.shape[-1]
@@ -149,7 +149,7 @@ def lobpcg_func(A, # don't need to be a matrix, but can be a callable function
     device = B.device
     if tol is None:
         feps = {torch.float32: 1.2e-07,
-                torch.float64: 2.23e-16}[dtype]
+                torch.float32: 2.23e-16}[dtype]
         tol = feps ** 0.5
 
     m = B.shape[-1]

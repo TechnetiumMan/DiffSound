@@ -43,7 +43,7 @@ class TetMesh:
         Compute the transformation matrices for each tetrahedron.
         '''
         A = torch.zeros(
-            (self.tets.shape[0], 3, 3), dtype=torch.float64, device=self.vertices.device)
+            (self.tets.shape[0], 3, 3), dtype=torch.float32, device=self.vertices.device)
         if self.order == 1:
             v1 = self.vertices[self.tets[:, 0]]
             v2 = self.vertices[self.tets[:, 1]]

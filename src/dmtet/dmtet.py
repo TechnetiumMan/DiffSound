@@ -190,9 +190,9 @@ def sdf_reg_loss(sdf, all_edges):
 ###############################################################################
 
 class DMTetGeometry(torch.nn.Module):
-    def __init__(self, res):
+    def __init__(self, res, scale = 1.0):
         super(DMTetGeometry, self).__init__()
-        self.scale = 1.0
+        self.scale = scale
         self.grid_res = res
         self.sdf_regularizer = 0.2
         self.marching_tets = DMTet()
@@ -226,5 +226,7 @@ class DMTetGeometry(torch.nn.Module):
         return verts, tets
 
     def reg_loss(self):
-        return sdf_reg_loss(self.sdf, self.all_edges).mean() * self.sdf_regularizer # Dropoff to 0.01
+        loss = sdf_reg_loss(self.sdf, self.all_edges).mean() 
+        print("sdf reg loss: {}".format(loss))
+        return loss * self.sdf_regularizer
 

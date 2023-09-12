@@ -13,7 +13,7 @@ def calculate_element_mass_matrix(fem_order, gauss_order):
     
     shape_func = get_shape_function(points, fem_order) # (4/10/20, gauss_points)
     vnum = shape_func.shape[1] 
-    M = torch.zeros((vnum, vnum), dtype=torch.float64).cuda() # element mass matrix
+    M = torch.zeros((vnum, vnum), dtype=torch.float32).cuda() # element mass matrix
     for v1 in range(vnum):
         for v2 in range(vnum):
             N1 = shape_func[:, v1]

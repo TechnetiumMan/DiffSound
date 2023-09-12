@@ -112,11 +112,11 @@ class DiffSoundObj:
         '''
         msize_list = [12, 30, 60]
         msize = msize_list[self.tetmesh.order - 1]
-        values = torch.zeros((msize * msize * self.tetmesh.tets.shape[0]), dtype=torch.float64).cuda()
+        values = torch.zeros((msize * msize * self.tetmesh.tets.shape[0]), dtype=torch.float32).cuda()
         rows = torch.zeros_like(values, dtype=torch.int32).cuda()
         cols = torch.zeros_like(values, dtype=torch.int32).cuda()
         vertices_cuda = self.tetmesh.vertices.to(
-            torch.float64).reshape(-1).contiguous().cuda()
+            torch.float32).reshape(-1).contiguous().cuda()
         tets_cuda = self.tetmesh.tets.to(torch.int32).reshape(-1).contiguous().cuda()
         element_mm = get_elememt_mass_matrix(self.tetmesh.order)
         vnum_list = [4, 10, 20]
@@ -127,9 +127,9 @@ class DiffSoundObj:
         idx = torch.arange(0, idx_num, dtype=torch.int32).cuda()
         tets_ptr = idx * vnum
         
-        x = torch.zeros((idx_num, 4), dtype=torch.float64).cuda()
-        y = torch.zeros((idx_num, 4), dtype=torch.float64).cuda()
-        z = torch.zeros((idx_num, 4), dtype=torch.float64).cuda()
+        x = torch.zeros((idx_num, 4), dtype=torch.float32).cuda()
+        y = torch.zeros((idx_num, 4), dtype=torch.float32).cuda()
+        z = torch.zeros((idx_num, 4), dtype=torch.float32).cuda()
         if self.tetmesh.order == 1:
             for i in range(4):
                 x[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3]
@@ -172,20 +172,20 @@ class DiffSoundObj:
     def eigen_decomposition_arpack(self):
         stiff_mat = scipy.sparse.coo_matrix(
             (
-                self.stiff_matrix.values().cpu().numpy(),
+                self.stiff_matrix.detach().values().cpu().numpy(),
                 (
-                    self.stiff_matrix.indices()[0].cpu().numpy(),
-                    self.stiff_matrix.indices()[1].cpu().numpy(),
+                    self.stiff_matrix.detach().indices()[0].cpu().numpy(),
+                    self.stiff_matrix.detach().indices()[1].cpu().numpy(),
                 ),
             )
         ).tocsr()
         stiff_mat.eliminate_zeros()
         mass_mat = scipy.sparse.coo_matrix(
             (
-                self.mass_matrix.values().cpu().numpy(),
+                self.mass_matrix.detach().values().cpu().numpy(),
                 (
-                    self.mass_matrix.indices()[0].cpu().numpy(),
-                    self.mass_matrix.indices()[1].cpu().numpy(),
+                    self.mass_matrix.detach().indices()[0].cpu().numpy(),
+                    self.mass_matrix.detach().indices()[1].cpu().numpy(),
                 ),
             )
         ).tocsr()
@@ -193,33 +193,15 @@ class DiffSoundObj:
         S, U_hat_full = scipy.sparse.linalg.eigsh(
             stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=0
         )
-        
-        # print("eigenvalues: ", self.eigenvalues)
-        
-        # notice that zero eigenvalues may be more than 6 when there are some discrete tets,
-        # so we have to count how many zero eigenvalues
-        threshold = 1.
-        for i in range(len(S)):
-            if S[i] > threshold:
-                break
-        if(i == len(S)):
-            raise ValueError("all eigenvalues are zero!!!")
-        self.zero_eigens = i
-        
-        # and then, to make sure mode_num is constant, we have to re-calculate eigenvalues use k = self.mode_num + self.zero_eigens
-        if self.zero_eigens > 6:
-            S, U_hat_full = scipy.sparse.linalg.eigsh(
-                stiff_mat, M=mass_mat, k=self.mode_num + self.zero_eigens, sigma=0
-            )
         self.U_hat_full = torch.from_numpy(U_hat_full).cuda().float()
         self.eigenvalues = torch.from_numpy(S).cuda().float()
-        self.U_hat = torch.from_numpy(U_hat_full[:, self.zero_eigens:]).cuda().float()
+        self.U_hat = torch.from_numpy(U_hat_full[:, 6:]).cuda().float()
 
     def get_undamped_freqs(self):
         predict = torch.zeros(self.mode_num).cuda()
-        predict += self.eigenvalues[self.zero_eigens:] # (mode_num)
+        predict += self.eigenvalues[6:]
         U = self.U_hat
-        vals = self.eigenvalues[self.zero_eigens:]
+        vals = self.eigenvalues[6:]
         add_term = (U.T @ (self.stiff_matrix @ U)).diagonal() - vals * (U.T @ (self.mass_matrix @ U)).diagonal()
         predict += add_term
         predict = torch.sqrt(predict) / 2 / np.pi

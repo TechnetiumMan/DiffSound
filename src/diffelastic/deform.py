@@ -11,9 +11,9 @@ class Deform():
         self.device = tetmesh.device
         self.gauss_points, self.gauss_weights = generate_gauss_points_weights(
             tetmesh.order + 2)
-        self.gauss_points = torch.tensor(self.gauss_points, dtype=torch.float64,
+        self.gauss_points = torch.tensor(self.gauss_points, dtype=torch.float32,
                                          device=tetmesh.vertices.device).to(self.device)  # (num_guass_points, 4)
-        self.gauss_weights = torch.tensor(self.gauss_weights, dtype=torch.float64,
+        self.gauss_weights = torch.tensor(self.gauss_weights, dtype=torch.float32,
                                           device=tetmesh.vertices.device).to(self.device)  # (num_guass_points)
         self.num_guass_points = self.gauss_points.shape[0]
         self.num_nodes_per_tet = tetmesh.tets.shape[1]
@@ -48,7 +48,7 @@ class Deform():
                               [0, 1, 0],
                               [0, 0, 1],
                               [-1, -1, -1]],
-                             dtype=torch.float64,
+                             dtype=torch.float32,
                              device=self.device
                              ).unsqueeze(0).repeat(self.num_tets * self.num_guass_points, 1, 1
                                                    )  # (num_tets*num_guass_points, 4, 3)

@@ -2,7 +2,7 @@ import numpy as np
 from numpy.polynomial.legendre import Legendre, legroots
 
 def calculate_legendre_roots_weights(order): 
-    coeffs = np.zeros(order+1, dtype=np.float64) # initialize coefficients to zero
+    coeffs = np.zeros(order+1, dtype=np.float32) # initialize coefficients to zero
     coeffs[-1] = 1 # set last coefficient to 1
     
     Pn = Legendre(coeffs)
@@ -19,11 +19,11 @@ def generate_gauss_points_weights(order):
     roots = (roots + 1) / 2 # [0, 1]
     
     # generate 3D points in a tetrahedron (0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)
-    x = np.zeros(order**3, dtype=np.float64)
-    y = np.zeros(order**3, dtype=np.float64)
-    z = np.zeros(order**3, dtype=np.float64)
-    w = np.zeros(order**3, dtype=np.float64)
-    weight_p = np.zeros(order**3, dtype=np.float64) # weight for every point
+    x = np.zeros(order**3, dtype=np.float32)
+    y = np.zeros(order**3, dtype=np.float32)
+    z = np.zeros(order**3, dtype=np.float32)
+    w = np.zeros(order**3, dtype=np.float32)
+    weight_p = np.zeros(order**3, dtype=np.float32) # weight for every point
     for i in range(order):
         for j in range(order):
             for k in range(order):
