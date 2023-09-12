@@ -9,6 +9,7 @@ saves
 *.mp3
 events.out.tfevents.*
 *.pth
+*.msh
 runs
 experiments/specs
 nvdiffrec

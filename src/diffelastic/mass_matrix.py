@@ -2,7 +2,7 @@ import sys
 sys.path.append('./')
 import numpy as np
 from numpy.polynomial.legendre import Legendre, legroots
-from src.shape_func import get_shape_function
+from .shape_func import get_shape_function
 import torch
 from .gauss import *
 

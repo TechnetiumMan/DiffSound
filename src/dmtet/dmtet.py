@@ -9,9 +9,6 @@
 
 import numpy as np
 import torch
-
-from src.dmtet.render import mesh
-from src.diff_model import DiffSoundObj, MatSet, Material, FixedLinear
 import torch.nn.functional as F
 
 ###############################################################################
@@ -193,11 +190,10 @@ def sdf_reg_loss(sdf, all_edges):
 ###############################################################################
 
 class DMTetGeometry(torch.nn.Module):
-    def __init__(self, res, iter):
+    def __init__(self, res):
         super(DMTetGeometry, self).__init__()
-        self.scale = 2.1
+        self.scale = 1.0
         self.grid_res = res
-        self.iter = iter
         self.sdf_regularizer = 0.2
         self.marching_tets = DMTet()
 
@@ -228,48 +224,7 @@ class DMTetGeometry(torch.nn.Module):
         v_deformed = self.verts + 2 / (self.grid_res * 2) * torch.tanh(self.deform)
         verts, tets = self.marching_tets(v_deformed, self.sdf, self.indices)
         return verts, tets
-    
-    def get_predict_audio(self, sr, sample_num):
-        verts, tets = self.getMesh()
-        mat = MatSet.Ceramic
-        model = DiffSoundObj(vertices=verts, tets=tets, mat=mat, mass_matrix_grad=True, mat_model=FixedLinear)
-        model.eigen_decomposition(grad=True)
-        undamped_freq = model.get_undamped_freqs(sample_num=model.mode_num, matrix_grad=True).float()
-        
-        mat = Material(mat)
-        undamped_freq = torch.reshape(undamped_freq, (1, model.mode_num, 1))
-        undamped_freq = undamped_freq.repeat((1, 1, sample_num))
-        
-        lbd = (undamped_freq * 2 * np.pi)**2
-        damp = 0.5 * (mat.alpha + mat.beta * lbd)
-        freq = (lbd - damp**2)**0.5 / (2 * np.pi) 
-        
-        damp = torch.cumsum(damp / sr, dim=2)
-        freq = torch.cumsum(freq / sr, dim=2)
-        damp_part = torch.exp(-damp)
-        freq_part = torch.sin(2 * np.pi * freq)
-        signal = (damp_part * freq_part) # assume amp = 1
-        signal = signal.sum(1)
-        signal = signal / torch.max(torch.abs(signal)) # normalization
-        return signal
 
-    def tick(self, target, loss_fn, iteration, sr):
-
-        # ==============================================================================================
-        #  Compute loss
-        # ==============================================================================================
-        t_iter = iteration / self.iter
-        threshold = 0.0 # 前10%的iter，只给四面体正则化，来防止出现大量碎片等不规则体素
-
-        audio_loss = 0
-        if t_iter >= threshold:
-            predict_audio = self.get_predict_audio(sr, sample_num=target.shape[1])
-            audio_loss = loss_fn(predict_audio, target)
-
-        # SDF regularizer
-        # sdf_weight = self.sdf_regularizer - (self.sdf_regularizer - 0.01)*min(1.0, 4.0 * t_iter)
-        sdf_weight = self.sdf_regularizer
-        reg_loss = sdf_reg_loss(self.sdf, self.all_edges).mean() * sdf_weight # Dropoff to 0.01
-
-        return audio_loss, reg_loss
+    def reg_loss(self):
+        return sdf_reg_loss(self.sdf, self.all_edges).mean() * self.sdf_regularizer # Dropoff to 0.01
 

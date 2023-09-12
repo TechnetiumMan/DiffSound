@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from .utils import modifed_sigmoid
 from .filtered_noise import FilteredNoise
-from ..material_model import MatSet, Material
+from ..diffelastic.material_model import MatSet, Material
 
 class WeightedParam(nn.Module):
     def __init__(self, values_list: torch.Tensor):

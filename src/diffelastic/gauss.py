@@ -1,7 +1,5 @@
 import numpy as np
 from numpy.polynomial.legendre import Legendre, legroots
-from .shape_func import get_shape_function
-import torch
 
 def calculate_legendre_roots_weights(order): 
     coeffs = np.zeros(order+1, dtype=np.float64) # initialize coefficients to zero
