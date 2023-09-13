@@ -191,18 +191,24 @@ class DiffSoundObj:
         ).tocsr()
         mass_mat.eliminate_zeros()
         S, U_hat_full = scipy.sparse.linalg.eigsh(
-            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=0
+            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=20000
         )
-        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().float()
-        self.eigenvalues = torch.from_numpy(S).cuda().float()
-        self.U_hat = torch.from_numpy(U_hat_full[:, 6:]).cuda().float()
+        # while (S > 20000).sum() < self.mode_num:
+        #     S, U_hat_full = scipy.sparse.linalg.eigsh(
+        #         stiff_mat, M=mass_mat, k=self.mode_num + (S < 20000).sum(), sigma=20000
+        #     )
+        # mask = S > 20000
 
-    def get_undamped_freqs(self):
+        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().float()
+        self.eigenvalues = torch.from_numpy(S).cuda().float()[6:] 
+        print(self.eigenvalues)
+        self.U_hat = torch.from_numpy(U_hat_full[:, 6:][:, :self.mode_num]).cuda().float()
+
+    def get_vals(self):
         predict = torch.zeros(self.mode_num).cuda()
-        predict += self.eigenvalues[6:]
+        predict += self.eigenvalues
         U = self.U_hat
-        vals = self.eigenvalues[6:]
+        vals = self.eigenvalues
         add_term = (U.T @ (self.stiff_matrix @ U)).diagonal() - vals * (U.T @ (self.mass_matrix @ U)).diagonal()
         predict += add_term
-        predict = torch.sqrt(predict) / 2 / np.pi
         return predict.unsqueeze(1)

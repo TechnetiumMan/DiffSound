@@ -181,6 +181,8 @@ def sdf_reg_loss(sdf, all_edges):
     sdf_f1x6x2 = sdf[all_edges.reshape(-1)].reshape(-1,2)
     mask = torch.sign(sdf_f1x6x2[...,0]) != torch.sign(sdf_f1x6x2[...,1])
     sdf_f1x6x2 = sdf_f1x6x2[mask]
+    if len(sdf_f1x6x2) == 0:
+        return torch.tensor(0.0, device='cuda')
     sdf_diff = torch.nn.functional.binary_cross_entropy_with_logits(sdf_f1x6x2[...,0], (sdf_f1x6x2[...,1] > 0).float()) + \
             torch.nn.functional.binary_cross_entropy_with_logits(sdf_f1x6x2[...,1], (sdf_f1x6x2[...,0] > 0).float())
     return sdf_diff
@@ -190,7 +192,7 @@ def sdf_reg_loss(sdf, all_edges):
 ###############################################################################
 
 class DMTetGeometry(torch.nn.Module):
-    def __init__(self, res, scale = 1.0):
+    def __init__(self, res, scale = 1.0, radius = 0.2, fill_rate = 0.5):
         super(DMTetGeometry, self).__init__()
         self.scale = scale
         self.grid_res = res
@@ -198,12 +200,16 @@ class DMTetGeometry(torch.nn.Module):
         self.marching_tets = DMTet()
 
         tets = np.load('src/dmtet/data/tets/{}_tets.npz'.format(self.grid_res))
-        self.verts    = torch.tensor(tets['vertices'], dtype=torch.float32, device='cuda') * self.scale
+        self.base_verts = torch.tensor(tets['vertices'], dtype=torch.float32, device='cuda')
+        self.verts    = self.base_verts * self.scale
         self.indices  = torch.tensor(tets['indices'], dtype=torch.long, device='cuda')
         self.generate_edges()
 
         # Random init
-        sdf = torch.rand_like(self.verts[:,0]) - 0.1
+        sdf = torch.rand_like(self.verts[:,0]) * 0.5 - 0.5 + fill_rate
+        center = torch.mean(self.verts, dim=0)
+        verts_radius = (self.verts - center).norm(dim=1)
+        sdf[verts_radius > radius * self.scale] = - 0.5
 
         self.sdf    = torch.nn.Parameter(sdf.clone().detach(), requires_grad=True)
         self.register_parameter('sdf', self.sdf)
