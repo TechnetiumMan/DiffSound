@@ -33,7 +33,7 @@ for i in range(num_iter):
     obj = DiffSoundObj(verts, tets)
     obj.eigen_decomposition()
     vals = obj.get_vals()
-    loss += torch.nn.MSELoss()(vals, vals_gt)
+    loss += ((vals - vals_gt)**2 / vals_gt**2).mean()
     print(vals, vals_gt)
     print("iter:{}, reg_loss: {}".format(i, loss))
     optimizer.zero_grad()
