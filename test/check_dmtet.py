@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 # load ground truth
 
-armadillo_data = o3d.data.ArmadilloMesh()
-mesh = o3d.io.read_triangle_mesh(armadillo_data.path)
+# armadillo_data = o3d.data.ArmadilloMesh()
+mesh = o3d.io.read_triangle_mesh("data/ArmadilloMesh.ply")
 mesh = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
 scene = o3d.t.geometry.RaycastingScene()
 _ = scene.add_triangles(mesh)
@@ -27,7 +27,7 @@ xyz_range = np.linspace(min_bound, max_bound, num=32)
 query_points = np.stack(np.meshgrid(*xyz_range.T), axis=-1).astype(np.float32)
 signed_distance = scene.compute_signed_distance(query_points)
 scale = 0.2
-radius = 0.8
+# radius = 0.8
 query_points = (query_points - min_bound) / (max_bound - min_bound) - 0.5
 query_points *= scale
 query_points = torch.from_numpy(query_points).cuda().reshape(-1, 3)
@@ -77,4 +77,5 @@ for i in range(num_iter):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    TetMesh(vertices=verts, tets=tets).export("output/dmtet.msh")
+    if i % 10 == 0:
+        TetMesh(vertices=verts, tets=tets).export(f"output/dmtet_{i}.msh")

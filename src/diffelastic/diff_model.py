@@ -44,7 +44,7 @@ class FixedLinear(nn.Module):
 
     # jacobian for Piola tensor d(stress)/d(F_input)
     def jacobian_F(self):
-        inputs = torch.zeros(1, 3, 3).cuda().float()
+        inputs = torch.zeros(1, 3, 3).cuda().double()
         mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
         return mat
 
@@ -68,7 +68,7 @@ class DiffSoundObj:
         SFDT = self.deform.shape_func_deriv.transpose(1, 2)
 
         # jacobian for Piola tensor d(stress)/d(F_input)
-        B = self.material_model.jacobian_F().reshape(1, 9, 9).float()
+        B = self.material_model.jacobian_F().reshape(1, 9, 9).double()
 
         stress_index = self.deform.stress_index.reshape(batch_size, 3 * N)
 
@@ -81,11 +81,11 @@ class DiffSoundObj:
         shape = torch.Size(
             [3 * self.tetmesh.vertices.shape[0], 3 * self.tetmesh.vertices.shape[0]]
         )
-        self.stiff_matrix = torch.sparse_coo_tensor(shape, dtype=torch.float).cuda()
+        self.stiff_matrix = torch.sparse_coo_tensor(shape, dtype=torch.double).cuda()
         for i in range(batch_num):
             start = idxs[i]
             end = idxs[i + 1]
-            A = torch.zeros(end - start, 9, 3 * N).cuda().float()
+            A = torch.zeros(end - start, 9, 3 * N).cuda().double()
             A[:, :3, 0::3] = SFDT[start:end]
             A[:, 3:6, 1::3] = SFDT[start:end]
             A[:, 6:9, 2::3] = SFDT[start:end]
@@ -107,12 +107,12 @@ class DiffSoundObj:
         msize_list = [12, 30, 60]
         msize = msize_list[self.tetmesh.order - 1]
         values = torch.zeros(
-            (msize * msize * self.tetmesh.tets.shape[0]), dtype=torch.float32
+            (msize * msize * self.tetmesh.tets.shape[0]), dtype=torch.double
         ).cuda()
         rows = torch.zeros_like(values, dtype=torch.int32).cuda()
         cols = torch.zeros_like(values, dtype=torch.int32).cuda()
         vertices_cuda = (
-            self.tetmesh.vertices.to(torch.float32).reshape(-1).contiguous().cuda()
+            self.tetmesh.vertices.to(torch.double).reshape(-1).contiguous().cuda()
         )
         tets_cuda = self.tetmesh.tets.to(torch.int32).reshape(-1).contiguous().cuda()
         element_mm = get_elememt_mass_matrix(self.tetmesh.order)
@@ -124,9 +124,9 @@ class DiffSoundObj:
         idx = torch.arange(0, idx_num, dtype=torch.int32).cuda()
         tets_ptr = idx * vnum
 
-        x = torch.zeros((idx_num, 4), dtype=torch.float32).cuda()
-        y = torch.zeros((idx_num, 4), dtype=torch.float32).cuda()
-        z = torch.zeros((idx_num, 4), dtype=torch.float32).cuda()
+        x = torch.zeros((idx_num, 4), dtype=torch.double).cuda()
+        y = torch.zeros((idx_num, 4), dtype=torch.double).cuda()
+        z = torch.zeros((idx_num, 4), dtype=torch.double).cuda()
         if self.tetmesh.order == 1:
             for i in range(4):
                 x[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3]
@@ -212,10 +212,10 @@ class DiffSoundObj:
         #     )
         # mask = S > 20000
 
-        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().float()
-        self.eigenvalues = torch.from_numpy(S).cuda().float()[6:]
+        self.U_hat_full = torch.from_numpy(U_hat_full).cuda().double()
+        self.eigenvalues = torch.from_numpy(S).cuda().double()[6:]
         self.U_hat = (
-            torch.from_numpy(U_hat_full[:, 6:][:, : self.mode_num]).cuda().float()
+            torch.from_numpy(U_hat_full[:, 6:][:, : self.mode_num]).cuda().double()
         )
 
     def get_vals(self):

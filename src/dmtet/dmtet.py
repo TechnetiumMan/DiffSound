@@ -353,10 +353,10 @@ class DMTetGeometry(torch.nn.Module):
         self.register_parameter("deform", self.deform)
 
     def mesh_template_loss(self, nodes, signed_distance, margin):
-        sdf = self.sdf_nerf(nodes[signed_distance > margin])
+        sdf = self.sdf_nerf(nodes[signed_distance > margin]) # only input non-margin inside query nodes to NeRF, and output sdf
         loss = 0
         return_none = True
-        if len(sdf[sdf <= margin]) > 0:
+        if len(sdf[sdf <= margin]) > 0: # if nerf gives a inside point <0 sdf, give it a loss
             loss += -(sdf[sdf <= margin]).mean()
             return_none = False
         sdf = self.sdf_nerf(nodes[signed_distance < -margin])
