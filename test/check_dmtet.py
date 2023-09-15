@@ -77,5 +77,6 @@ for i in range(num_iter):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+    TetMesh(vertices=verts, tets=tets).export("output/dmtet.msh")
     if i % 10 == 0:
-        TetMesh(vertices=verts, tets=tets).export(f"output/dmtet_{i}.msh")
+        torch.save([verts, tets], "output/dmtet_{}.pth".format(i))

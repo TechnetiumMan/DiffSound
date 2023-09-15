@@ -175,7 +175,7 @@ class DMTet:
 
         num_tets = self.num_tets_table[tetindex]  # 查表得到每一类四面体中子四面体数量
 
-        # # Generate triangle indices
+        # Generate triangle indices
         faces = torch.cat(
             (
                 torch.gather(
