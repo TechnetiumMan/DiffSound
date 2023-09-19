@@ -56,8 +56,9 @@ class DiffSoundObj:
         tets,
         mode_num=16,
         mat=MatSet.Ceramic,
+        order=1
     ):
-        self.tetmesh = TetMesh(vertices, tets)
+        self.tetmesh = TetMesh(vertices, tets).to_high_order(order)
         self.deform = Deform(self.tetmesh)
         self.material_model = FixedLinear(Material(mat))
         self.mode_num = mode_num
@@ -116,6 +117,9 @@ class DiffSoundObj:
         )
         tets_cuda = self.tetmesh.tets.to(torch.int32).reshape(-1).contiguous().cuda()
         element_mm = get_elememt_mass_matrix(self.tetmesh.order)
+        
+        from src.cuda_module import mass_matrix_assembler
+        
         vnum_list = [4, 10, 20]
         vnum = vnum_list[self.tetmesh.order - 1]
         msize = vnum * 3
@@ -132,6 +136,20 @@ class DiffSoundObj:
                 x[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3]
                 y[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3 + 1]
                 z[:, i] = vertices_cuda[tets_cuda[tets_ptr + i] * 3 + 2]
+                
+        elif self.tetmesh.order == 2:
+            x[:, 0] = vertices_cuda[tets_cuda[tets_ptr + 0] * 3]
+            y[:, 0] = vertices_cuda[tets_cuda[tets_ptr + 0] * 3 + 1]
+            z[:, 0] = vertices_cuda[tets_cuda[tets_ptr + 0] * 3 + 2]
+            x[:, 1] = vertices_cuda[tets_cuda[tets_ptr + 2] * 3]
+            y[:, 1] = vertices_cuda[tets_cuda[tets_ptr + 2] * 3 + 1]
+            z[:, 1] = vertices_cuda[tets_cuda[tets_ptr + 2] * 3 + 2]
+            x[:, 2] = vertices_cuda[tets_cuda[tets_ptr + 4] * 3]
+            y[:, 2] = vertices_cuda[tets_cuda[tets_ptr + 4] * 3 + 1]
+            z[:, 2] = vertices_cuda[tets_cuda[tets_ptr + 4] * 3 + 2]
+            x[:, 3] = vertices_cuda[tets_cuda[tets_ptr + 9] * 3]
+            y[:, 3] = vertices_cuda[tets_cuda[tets_ptr + 9] * 3 + 1]
+            z[:, 3] = vertices_cuda[tets_cuda[tets_ptr + 9] * 3 + 2]
         else:
             raise NotImplementedError  # TODO
 

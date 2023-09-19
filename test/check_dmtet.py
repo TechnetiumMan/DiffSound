@@ -35,8 +35,8 @@ signed_distance = -torch.from_numpy(signed_distance.numpy()).cuda().reshape(-1)
 # SDF in this implementation is positive inside the mesh
 
 res = 32
-pre_iter = 1000
-num_iter = 100
+pre_iter = 100
+num_iter = 1000
 DMTet = DMTetGeometry(res=res, scale=0.2, freq_num=3).cuda()
 optimizer = torch.optim.Adam(DMTet.parameters(), lr=0.0001)
 TetMesh(vertices=DMTet.verts, tets=DMTet.indices).export("output/dmtet_base.msh")
@@ -55,19 +55,21 @@ print("pre_iter:{}, loss: {}".format(pre_iter, loss))
 verts, tets = DMTet.getMesh()
 print(verts.shape, tets.shape)
 TetMesh(vertices=verts, tets=tets).export("output/dmtet_pre.msh")
-
-optimizer = torch.optim.Adam(DMTet.parameters(), lr=0.0001)
+0
+optimizer = torch.optim.Adam(DMTet.parameters(), lr=1e-5)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
 
 for i in range(num_iter):
     verts, tets = DMTet.getMesh()
     verts, tets = DMTet.get_largest_connected_component(verts, tets)
+    if i % 10 == 0:
+        torch.save([verts, tets], "output/dmtet_{}.pth".format(i))
     print(verts.shape, tets.shape)
     loss1 = DMTet.mesh_template_loss(query_points, signed_distance, margin)
     if loss1 is None:
         loss1 = torch.tensor(0.0).cuda()
     print("iter:{}, loss1: {}".format(i, loss1))
-    obj = DiffSoundObj(verts, tets, mode_num=4)
+    obj = DiffSoundObj(verts, tets, mode_num=4, order=2)
     obj.eigen_decomposition()
     vals = obj.get_vals()
     print(vals)
