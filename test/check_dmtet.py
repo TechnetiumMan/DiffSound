@@ -34,7 +34,7 @@ query_points = torch.from_numpy(query_points).cuda().reshape(-1, 3)
 signed_distance = -torch.from_numpy(signed_distance.numpy()).cuda().reshape(-1)
 # SDF in this implementation is positive inside the mesh
 
-res = 32
+res = 16
 pre_iter = 100
 num_iter = 1000
 DMTet = DMTetGeometry(res=res, scale=0.2, freq_num=3).cuda()
