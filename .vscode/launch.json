@@ -76,6 +76,14 @@
             // "configs/bob_test.json"]
         },
         {
+            "name": "dmtet_shape",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/dmtet_shape.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+        },
+        {
             "name": "CUDA-python-test",
             "type": "cppdbg",
             "request": "launch",
