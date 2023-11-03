@@ -11,3 +11,5 @@ output
 runs
 experiments/specs
 nvdiffrec
+data_old
+out

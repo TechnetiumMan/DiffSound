@@ -118,8 +118,6 @@ class DiffSoundObj:
         tets_cuda = self.tetmesh.tets.to(torch.int32).reshape(-1).contiguous().cuda()
         element_mm = get_elememt_mass_matrix(self.tetmesh.order)
         
-        from src.cuda_module import mass_matrix_assembler
-        
         vnum_list = [4, 10, 20]
         vnum = vnum_list[self.tetmesh.order - 1]
         msize = vnum * 3

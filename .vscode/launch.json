@@ -14,58 +14,6 @@
             "justMyCode": true
         },
         {
-            "name": "ddsp",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/ddsp.py",
-            "console": "integratedTerminal",
-            "args": ["experiments/configs/test_pipeline.ini"],
-            "justMyCode": true
-        },
-        {
-            "name": "new_pipeline",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train.py",
-            "console": "integratedTerminal",
-            "args": ["experiments/configs/2_2_mat_newloss_16audio.ini"],
-            "justMyCode": true
-        },
-        {
-            "name": "step_train",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/step_train.py",
-            "console": "integratedTerminal",
-            "args": ["experiments/configs/30_2_mat_step.ini"],
-            "justMyCode": true
-        },
-        {
-            "name": "adjoint",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/adjoint_method.py",
-            "args": ["experiments/configs/30_2_mat_adjoint.ini"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "check_adjoint",
-            "type": "python",
-            "request": "launch",
-            "program": "test/check_adjoint_method.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "check_adjoint_simple",
-            "type": "python",
-            "request": "launch",
-            "program": "test/check_adjoint_method_simple.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
             "name": "check_dmtet",
             "type": "python",
             "request": "launch",
@@ -82,6 +30,52 @@
             "program": "experiments/dmtet_shape.py",
             "console": "integratedTerminal",
             "justMyCode": true,
+        },
+        {
+            "name": "multi_model_test",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "/home/xuchenxi/DiffFEM-new/src/dmtet",
+            "args": ["--config", "configs/sphere.json"]
+        },
+        {
+            "name": "sphere",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/sphere.json"]
+        },
+        {
+            "name": "small-rotate",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/sphere_small_rotate.json"]
+        },
+        {
+            "name": "sdf-nerf",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/sdf_nerf.json"]
+        },
+        {
+            "name": "sdf-nerf-audio",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/sdf_nerf_audio0.001.json"]
         },
         {
             "name": "CUDA-python-test",
