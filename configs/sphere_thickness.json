@@ -1,0 +1,10 @@
+{
+    "target_mesh"  : "data/sphere/sphere.obj",
+    "iter": 1000,
+    "save_interval": 20,
+    "batch": 4,
+    "learning_rate": 2e-2,
+    "out_dir": "sphere_thickness",
+    "init_mesh_dir": "data/sphere/sphere.obj",
+    "dmtet_grid": 25
+}

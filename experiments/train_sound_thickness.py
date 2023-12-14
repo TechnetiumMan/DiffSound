@@ -295,7 +295,7 @@ def optimize_mesh(
     # ==============================================================================================
     #  Setup torch optimizer
     # ==============================================================================================
-    learning_rate_thickness = FLAGS.learning_rate_thickness
+    learning_rate_thickness = FLAGS.learning_rate
     # def lr_schedule(iter, fraction):
     #     if iter < warmup_iter:
     #         return iter / warmup_iter 
@@ -377,8 +377,8 @@ if __name__ == "__main__":
     FLAGS = parser.parse_args()
 
     FLAGS.mtl_override        = None                     # Override material of model
-    FLAGS.dmtet_grid          = 16                       # Resolution of initial tet grid. We provide 64 and 128 resolution grids. Other resolutions can be generated with https://github.com/crawforddoran/quartet
-    FLAGS.mesh_scale          = 2.1                      # Scale of tet grid box. Adjust to cover the model
+    FLAGS.dmtet_grid          = 32                       # Resolution of initial tet grid. We provide 64 and 128 resolution grids. Other resolutions can be generated with https://github.com/crawforddoran/quartet
+    FLAGS.mesh_scale          = 2.7                        # Scale of tet grid box. Adjust to cover the model
     FLAGS.env_scale           = 1.0                      # Env map intensity multiplier
     FLAGS.envmap              = None                     # HDR environment probe
     FLAGS.display             = None                     # Conf validation window/display. E.g. [{"relight" : <path to envlight>}]
@@ -433,7 +433,7 @@ if __name__ == "__main__":
 
     os.makedirs(FLAGS.out_dir, exist_ok=True)
 
-    glctx = dr.RasterizeGLContext()
+    # glctx = dr.RasterizeGLContext()
 
     # ==============================================================================================
     #  Create data pipeline
@@ -441,18 +441,22 @@ if __name__ == "__main__":
     target_mesh         = mesh.load_mesh(FLAGS.target_mesh, FLAGS.mtl_override)
     
     # load tet mesh (not triangle!) for ground truth audio
-    target_tetmesh = meshio.read(FLAGS.target_mesh[:-4] + ".msh")
+    # target_tetmesh = meshio.read(FLAGS.target_mesh[:-4] + ".msh")
     
     # generate ground truth audio (now: eigenvalues of each mode)
-    vertices = torch.Tensor(target_tetmesh.points).cuda()
-    tets = torch.Tensor(target_tetmesh.cells[0].data).long().cuda()
-    print('Load tetramesh with ', len(vertices),
-        ' vertices & ', len(tets), ' tets')
+    # vertices = torch.Tensor(target_tetmesh.points).cuda()
+    # tets = torch.Tensor(target_tetmesh.cells[0].data).long().cuda()
+    # print('Load tetramesh with ', len(vertices),
+    #     ' vertices & ', len(tets), ' tets')
     
-    target_sound_obj = DiffSoundObj(vertices, tets, mode_num=FLAGS.mode_num, order=FLAGS.order)
-    target_sound_obj.eigen_decomposition()
-    target_vals = target_sound_obj.get_vals()
+    # target_sound_obj = DiffSoundObj(vertices, tets, mode_num=FLAGS.mode_num, order=FLAGS.order)
+    # target_sound_obj.eigen_decomposition()
+    # target_vals = target_sound_obj.get_vals()
+    target_geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
+    target_geometry.apply_sdf(FLAGS.init_mesh_dir, FLAGS)
+    target_vals = target_geometry.get_eigenvalues(thickness_coef=0.2)
     print("ground truth eigenvalues:", target_vals)
+    # target_vals = 0 # debug
 
     # Setup geometry for optimization
     geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)

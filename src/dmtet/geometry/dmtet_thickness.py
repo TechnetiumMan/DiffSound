@@ -7,8 +7,10 @@
 # without an express license agreement from NVIDIA CORPORATION or 
 # its affiliates is strictly prohibited.
 
+from typing import Iterator
 import numpy as np
 import torch
+from torch.nn.parameter import Parameter
 
 from render import mesh
 from render import render
@@ -17,7 +19,7 @@ import sys
 sys.path.append("./")
 from src.diffelastic.diff_model import DiffSoundObj
 import open3d as o3d
-from sdf import WeightedParam
+from src.dmtet.geometry.sdf import WeightedParam
 
 ###############################################################################
 # Marching tetrahedrons implementation (differentiable), adapted from
@@ -141,13 +143,17 @@ class DMTet:
     # Marching tets implementation
     ###############################################################################
 
-    def __call__(self, pos_nx3, sdf_n, tet_fx4):
+    def __call__(self, pos_nx3, sdf_n, tet_fx4, thickness_coef=None):
         
-        thickness = self.thickness_coef() * self.max_thickness # (0, 1) -> (0, max(self.sdf))
+        if thickness_coef is None:
+            thickness = self.thickness_coef() * self.max_thickness # (0, 1) -> (0, max(self.sdf))
+        else:
+            thickness = thickness_coef * self.max_thickness
         
         with torch.no_grad():
             # add thickness here for hollow objects
-            occ_n = sdf_n > 0 and sdf_n < thickness
+            # occ_n = (sdf_n > 0 and sdf_n < thickness)
+            occ_n = (sdf_n > 0) & (sdf_n < thickness)
             
             occ_fx4 = occ_n[tet_fx4.reshape(-1)].reshape(-1,4)
             occ_sum = torch.sum(occ_fx4, -1)
@@ -170,12 +176,10 @@ class DMTet:
         edges_to_interp = pos_nx3[interp_v.reshape(-1)].reshape(-1,2,3)
         edges_to_interp_sdf = sdf_n[interp_v.reshape(-1)].reshape(-1,2,1)
         
-        # 将edges_to_interp_sdf排序为第一个元素小于第二个元素
-        edges_to_interp_sdf = torch.sort(edges_to_interp_sdf, dim=1)
         
         # 现在edges_to_interp_sdf有两种情况：第一种 x < 0, 0 < y < thickness, 第二种 0 < x < thickness, y > thickness
-        # 只需要对所有x>0的两条边的sdf值同时减去thickness即可
-        edges_to_interp_sdf[edges_to_interp_sdf[:,0,0] > 0] -= thickness
+        # 只需要对所有x>0且y>0的两条边的sdf值同时减去thickness即可
+        edges_to_interp_sdf[(edges_to_interp_sdf[:,0,0] > 0) & (edges_to_interp_sdf[:,1,0] > 0)] -= thickness
         
         edges_to_interp_sdf[:,-1] *= -1
 
@@ -289,7 +293,7 @@ class DMTetGeometry(torch.nn.Module):
         self.generate_edges()
         
         # init sdf for loading init mesh
-        self.sdf = torch.zeros(self.verts[:,0])
+        self.sdf = torch.zeros_like(self.verts[:,0])
         
         # self.sdf    = torch.nn.Parameter(sdf.clone().detach(), requires_grad=True)
         # self.register_parameter('sdf', self.sdf)
@@ -308,10 +312,10 @@ class DMTetGeometry(torch.nn.Module):
     def getAABB(self):
         return torch.min(self.verts, dim=0).values, torch.max(self.verts, dim=0).values
 
-    def getMesh(self, return_triangle=False):
+    def getMesh(self, return_triangle=False, thickness_coef=None):
         # Run DM tet to get a base mesh
-        v_deformed = self.verts + 2 / (self.grid_res * 2) * torch.tanh(self.deform)
-        verts, faces, verts_tetmesh, tets_tetmesh = self.marching_tets(v_deformed, self.sdf, self.indices)
+        # v_deformed = self.verts + 2 / (self.grid_res * 2) * torch.tanh(self.deform)
+        verts, faces, verts_tetmesh, tets_tetmesh = self.marching_tets(self.verts, self.sdf, self.indices, thickness_coef)
         
         # build triangle mesh
         # if material:
@@ -376,6 +380,9 @@ class DMTetGeometry(torch.nn.Module):
         sound_obj.eigen_decomposition()
         vals = sound_obj.get_vals()
         audio_loss = ((vals - target) ** 2 / vals**2).mean()
+        
+        print("thickness",self.marching_tets.thickness_coef().item(), "audio_loss", audio_loss.item())
+        
         return audio_loss
     
     def apply_sdf(self, init_mesh_dir, FLAGS):
@@ -384,29 +391,24 @@ class DMTetGeometry(torch.nn.Module):
         
         scene = o3d.t.geometry.RaycastingScene()
         _ = scene.add_triangles(mesh)
-        # min_bound = mesh.vertex.positions.min(0).numpy()
-        # max_bound = mesh.vertex.positions.max(0).numpy()
-
-        # # add margin
-        # size = max_bound - min_bound
-        # min_bound -= size * 0.1
-        # max_bound += size * 0.1
-
-        # xyz_range = np.linspace(min_bound, max_bound, num=32)
-        # xyz_range = np.linspace([-1, -1, -1], [1, 1, 1], num=32)
         
-        # scale = FLAGS.sdf_scale # (-2, 2)
-        # radius = 0.8
-        # query_points = (query_points - min_bound) / (max_bound - min_bound) - 0.5 # (-0.5, 0.5)
-        # query_points *= scale # (-0.1, 0.1)
-        # query_points = torch.from_numpy(query_points).cuda().reshape(-1, 3)
-        
-        query_points = self.verts.numpy().astype(np.float32) # (-1.2, 1.2)
+        query_points = self.verts.cpu().numpy() # (-1.2, 1.2)
         signed_distance = scene.compute_signed_distance(query_points)
-        signed_distance = -torch.from_numpy(signed_distance.numpy()).cuda().reshape(-1)
+        signed_distance = signed_distance.numpy()
+        signed_distance = -torch.from_numpy(signed_distance).cuda().reshape(-1)
         self.sdf = signed_distance
         
-        self.max_thickness = self.sdf.max()
+        self.marching_tets.max_thickness = self.sdf.max()
+        
+    def parameters(self):
+        return self.marching_tets.thickness_coef.parameters()
+    
+    def get_eigenvalues(self, thickness_coef=None):
+        with torch.no_grad():
+            sound_obj = self.getMesh(thickness_coef=thickness_coef)
+            sound_obj.eigen_decomposition()
+            vals = sound_obj.get_vals()
+        return vals
         
         
         

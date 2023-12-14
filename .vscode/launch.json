@@ -68,6 +68,15 @@
             "args": ["--config", "configs/sdf_nerf_audio0.001.json"]
         },
         {
+            "name": "sphere-thickness",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound_thickness.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/sphere_thickness.json"]
+        },
+        {
             "name": "CUDA-python-test",
             "type": "cppdbg",
             "request": "launch",
