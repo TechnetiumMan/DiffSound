@@ -295,6 +295,10 @@ class Trainer(torch.nn.Module):
         self.params = list(self.material.parameters())
         self.params += list(self.light.parameters()) if optimize_light else []
         self.geo_params = list(self.geometry.parameters()) if optimize_geometry else []
+        
+        self.sdf_front_params = list(self.geometry.sdf_nerf_front.parameters())
+        self.sdf_back_params = list(self.geometry.sdf_nerf_back.parameters())
+        self.deform_params = [self.geometry.get_parameter("deform")]
 
     def forward(self, target, it):
         if self.optimize_light:
@@ -349,8 +353,11 @@ def optimize_mesh(
     # Single GPU training mode
     trainer = trainer_noddp
     if optimize_geometry:
-        optimizer_mesh = torch.optim.Adam(trainer_noddp.geo_params, lr=learning_rate_pos, betas=betas)
-        scheduler_mesh = torch.optim.lr_scheduler.LambdaLR(optimizer_mesh, lr_lambda=lambda x: lr_schedule(x, 0.9)) 
+        # optimizer_mesh = torch.optim.Adam(trainer_noddp.geo_params, lr=learning_rate_pos, betas=betas)
+        # scheduler_mesh = torch.optim.lr_scheduler.LambdaLR(optimizer_mesh, lr_lambda=lambda x: lr_schedule(x, 0.9)) 
+        optimizer_sdf_front = torch.optim.Adam(trainer_noddp.sdf_front_params, lr=learning_rate_pos, betas=betas)
+        optimizer_sdf_back = torch.optim.Adam(trainer_noddp.sdf_back_params, lr=learning_rate_pos, betas=betas)
+        optimizer_deform = torch.optim.Adam(trainer_noddp.deform_params, lr=learning_rate_pos, betas=betas) # lr = learning_rate_mat
 
     optimizer = torch.optim.Adam(trainer_noddp.params, lr=learning_rate_mat)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda x: lr_schedule(x, 0.9)) 
@@ -401,31 +408,35 @@ def optimize_mesh(
 
         iter_start_time = time.time()
 
-        # ==============================================================================================
-        #  Zero gradients
-        # ==============================================================================================
         optimizer.zero_grad()
-        if optimize_geometry:
-            optimizer_mesh.zero_grad()
+        # if optimize_geometry:
+        #     optimizer_sdf_front.zero_grad()
+        #     optimizer_sdf_back.zero_grad()
 
-        # ==============================================================================================
-        #  Training
-        # ==============================================================================================
         img_loss, reg_loss, audio_loss = trainer(target, it)
-
-        # ==============================================================================================
-        #  Final loss
-        # ==============================================================================================
-        total_loss = img_loss + reg_loss + audio_loss * FLAGS.audio_weight
 
         img_loss_vec.append(img_loss.item())
         reg_loss_vec.append(reg_loss.item())
         audio_loss_vec.append(audio_loss.item())
-
-        # ==============================================================================================
-        #  Backpropagate
-        # ==============================================================================================
-        total_loss.backward()
+        
+        # total_loss = img_loss + reg_loss + audio_loss * FLAGS.audio_weight
+        # total_loss.backward()
+        
+        # now sdf_front use img_loss + reg_loss, and sdf_back use audio_loss + reg_loss
+        front_loss = img_loss + reg_loss
+        back_loss = audio_loss * FLAGS.audio_weight + reg_loss + img_loss
+        
+        optimizer_sdf_front.zero_grad()
+        front_loss.backward(retain_graph=True)
+        optimizer_sdf_front.step()
+        
+        optimizer_sdf_back.zero_grad()
+        optimizer_deform.zero_grad()
+        back_loss.backward()
+        optimizer_sdf_back.step()
+        optimizer_deform.step()
+        
+        
         if hasattr(lgt, 'base') and lgt.base.grad is not None and optimize_light:
             lgt.base.grad *= 64
         if 'kd_ks_normal' in opt_material:
@@ -434,9 +445,9 @@ def optimize_mesh(
         optimizer.step()
         scheduler.step()
 
-        if optimize_geometry:
-            optimizer_mesh.step()
-            scheduler_mesh.step()
+        # if optimize_geometry:
+            # optimizer_mesh.step()
+            # scheduler_mesh.step()
 
         # ==============================================================================================
         #  Clamp trainables to reasonable range
@@ -650,8 +661,8 @@ if __name__ == "__main__":
         final_mesh = geometry.getMesh(mat)[0]
         
         # debug
-        pos_max = torch.max(torch.abs(final_mesh.v_pos))
-        final_mesh.v_pos = (final_mesh.v_pos / pos_max) * 0.5
+        # pos_max = torch.max(torch.abs(final_mesh.v_pos))
+        # final_mesh.v_pos = (final_mesh.v_pos / pos_max) * 0.5
         
         os.makedirs(os.path.join(FLAGS.out_dir, "mesh"), exist_ok=True)
         obj.write_obj(os.path.join(FLAGS.out_dir, "mesh/"), final_mesh)

@@ -258,7 +258,6 @@ def sdf_reg_loss(sdf, all_edges):
             torch.nn.functional.binary_cross_entropy_with_logits(sdf_f1x6x2[...,1], (sdf_f1x6x2[...,0] > 0).float())
     return sdf_diff
 
-# TODO: add nerf-sdf
 class PositionalEncoding(torch.nn.Module):
     def __init__(self, freq_num=1, scale=1.0):
         super(PositionalEncoding, self).__init__()
@@ -330,7 +329,18 @@ class DMTetGeometry(torch.nn.Module):
         self.indices  = torch.tensor(tets['indices'], dtype=torch.long, device='cuda')
         self.generate_edges()
         
-        self.sdf_nerf = NerfWithPositionEncoding(
+        # self.sdf_nerf = NerfWithPositionEncoding(
+        #     freq_num=FLAGS.freq_num, scale=scale, layer_num=3, hidden_dim=256
+        # ).cuda()
+        
+        # 将sdf network分为正面和背面，正面只用图像，背面加入声音
+        # z > 0为正面
+        self.z_threshold = -0.2
+        self.sdf_nerf_front = NerfWithPositionEncoding(
+            freq_num=FLAGS.freq_num, scale=scale, layer_num=3, hidden_dim=256
+        ).cuda()
+        
+        self.sdf_nerf_back = NerfWithPositionEncoding(
             freq_num=FLAGS.freq_num, scale=scale, layer_num=3, hidden_dim=256
         ).cuda()
 
@@ -362,9 +372,30 @@ class DMTetGeometry(torch.nn.Module):
         v_deformed = self.verts + 2 / (self.grid_res * 2) * torch.tanh(self.deform)
         # print(v_deformed.min(), v_deformed.max())
         # print(self.verts.min(), self.verts.max())
-        sdf = self.sdf_nerf(v_deformed)
+        
+        # 将所有顶点分成正面和背面
+        sdf_front = self.sdf_nerf_front(v_deformed[v_deformed[:,2] >= self.z_threshold]).squeeze(-1)
+        sdf_back = self.sdf_nerf_back(v_deformed[v_deformed[:,2] < self.z_threshold]).squeeze(-1)
+        
+        # 将其合并为一个sdf
+        sdf = torch.zeros_like(v_deformed[:,0])
+        sdf[v_deformed[:,2] >= self.z_threshold] = sdf_front
+        sdf[v_deformed[:,2] < self.z_threshold] = sdf_back
+        
+        # sdf = self.sdf_nerf(v_deformed)
         return sdf
-
+    
+    def sdf_nerf(self, verts):
+        # 将所有顶点分成正面和背面
+        sdf_front = self.sdf_nerf_front(verts[verts[:,2] >= self.z_threshold]).squeeze(-1)
+        sdf_back = self.sdf_nerf_back(verts[verts[:,2] < self.z_threshold]).squeeze(-1)
+        
+        # 将其合并为一个sdf
+        sdf = torch.zeros_like(verts[:,0])
+        sdf[verts[:,2] >= self.z_threshold] = sdf_front
+        sdf[verts[:,2] < self.z_threshold] = sdf_back
+        return sdf
+    
     def generate_edges(self):
         with torch.no_grad():
             edges = torch.tensor([0,1,0,2,0,3,1,2,1,3,2,3], dtype = torch.long, device = "cuda")

@@ -113,7 +113,7 @@ class DatasetMesh(Dataset):
 
         # random rotate for a small range
         ang_xy    = (torch.rand(2) - 0.5) * self.obs_range * np.pi * 2
-        mv     = util.translate(0, 0, -self.cam_radius) @ (util.rotate_x(ang_xy[0]) @ util.rotate_y(ang_xy[1]))
+        mv     = util.translate(0, 0, -self.cam_radius) @ (util.rotate_x(ang_xy[0]) @ util.rotate_y(ang_xy[1])) # camera pos (0, 0, -3), z < 0 is front
         mvp    = proj_mtx @ mv
         campos = torch.linalg.inv(mv)[:3, 3]
 

@@ -13,7 +13,7 @@
     "env_scale" : 2.0,
     "background": "white",
     "validate" : false,
-    "out_dir": "sdf_nerf_connected0.1",
+    "out_dir": "sdf_nerf0.1",
     "audio_weight": 0.1,
     "pre_iter": 500,
     "init_mesh_dir": "data/sphere/sphere0.7.obj"

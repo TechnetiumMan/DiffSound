@@ -69,6 +69,15 @@
             "args": ["--config", "configs/sdf_nerf.json"]
         },
         {
+            "name": "sdf-bob",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/sdf_bob.json"]
+        },
+        {
             "name": "sdf-nerf-audio",
             "type": "python",
             "request": "launch",

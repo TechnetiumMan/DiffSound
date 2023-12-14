@@ -1,5 +1,5 @@
 {
-    "ref_mesh"  : "data/sphere/sphere.obj",
+    "ref_mesh"  : "data/bob/bob_tri.obj",
     "random_textures": true,
     "iter": 1000,
     "save_interval": 20,
@@ -13,8 +13,8 @@
     "env_scale" : 2.0,
     "background": "white",
     "validate" : false,
-    "out_dir": "sdf_nerf0.01",
-    "audio_weight": 0.01,
+    "out_dir": "sphere_sdf_bob",
+    "audio_weight": 0,
     "pre_iter": 500,
-    "init_mesh_dir": "data/sphere/sphere0.7.obj"
+    "init_mesh_dir": "data/sphere/sphere.obj"
 }
