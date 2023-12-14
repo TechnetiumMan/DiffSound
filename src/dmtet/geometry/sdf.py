@@ -6,6 +6,21 @@ import sys
 import os
 sys.path.append("./")
 from src.diffelastic.diff_model import TetMesh
+import torch.nn as nn
+import torch.nn.functional as F
+
+class WeightedParam(nn.Module):
+    def __init__(self, values_list: torch.Tensor):
+        super(WeightedParam, self).__init__()
+        self.values_list = values_list
+        self.probablity = nn.Parameter(torch.zeros(len(values_list)))
+        self.probablity.data.uniform_(-1, 1)
+
+    def forward(self):
+        probablity = F.softplus(self.probablity)
+        probablity = probablity / probablity.sum()
+        value = (self.values_list * probablity).sum()
+        return value
 
 def train_sdfnerf(geometry, init_mesh, FLAGS):
     mesh = o3d.io.read_triangle_mesh(init_mesh)
