@@ -1,0 +1,11 @@
+{
+    "iter": 500,
+    "save_interval": 20,
+    "batch": 4,
+    "learning_rate": 5e-2,
+    "out_dir": "arma_thickness",
+    "init_mesh_dir": "data/mesh/armadillo.obj",
+    "dmtet_grid": 64,
+    "mesh_scale": 160,
+    "mat": "Tin"
+}

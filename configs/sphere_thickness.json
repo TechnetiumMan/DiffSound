@@ -1,10 +1,11 @@
 {
-    "target_mesh"  : "data/sphere/sphere.obj",
+    "target_mesh"  : "data/sphere/target_triangle0.2.obj",
     "iter": 1000,
     "save_interval": 20,
     "batch": 4,
     "learning_rate": 2e-2,
     "out_dir": "sphere_thickness",
     "init_mesh_dir": "data/sphere/sphere.obj",
-    "dmtet_grid": 25
+    "dmtet_grid": 32,
+    "mesh_scale": 2.1
 }

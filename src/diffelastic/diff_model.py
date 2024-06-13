@@ -17,7 +17,7 @@ batch_trace = torch.vmap(torch.trace)
 # linear elastic without any trainable args
 class FixedLinear(nn.Module):
     def __init__(self, mat: Material):
-        self.youngs = mat.youngs / mat.density
+        self.youngs = mat.youngs
         self.poisson = mat.poisson
         self.mat = mat
 
@@ -220,7 +220,7 @@ class DiffSoundObj:
         ).tocsr()
         mass_mat.eliminate_zeros()
         S, U_hat_full = scipy.sparse.linalg.eigsh(
-            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=20000
+            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=0
         )
         # while (S > 20000).sum() < self.mode_num:
         #     S, U_hat_full = scipy.sparse.linalg.eigsh(

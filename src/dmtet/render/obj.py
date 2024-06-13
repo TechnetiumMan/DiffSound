@@ -124,8 +124,11 @@ def load_obj(filename, clear_ks=True, mtl_override=None):
 # Save mesh object to objfile
 ######################################################################################
 
-def write_obj(folder, mesh, save_material=True):
-    obj_file = os.path.join(folder, 'mesh.obj')
+def write_obj(folder, mesh, save_material=True, name=None):
+    if name is not None:
+        obj_file = os.path.join(folder, name)
+    else:
+        obj_file = os.path.join(folder, 'mesh.obj')
     print("Writing mesh: ", obj_file)
     with open(obj_file, "w") as f:
         f.write("mtllib mesh.mtl\n")

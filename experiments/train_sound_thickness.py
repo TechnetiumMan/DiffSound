@@ -17,10 +17,10 @@ import json
 
 import numpy as np
 import torch
-import nvdiffrast.torch as dr
-import xatlas
+# import nvdiffrast.torch as dr
+# import xatlas
 
-import meshio
+# import meshio
 from tqdm import tqdm
 
 import sys
@@ -29,247 +29,23 @@ sys.path.append("src/dmtet/")
 # Import topology / geometry trainers
 from geometry.dmtet_thickness import DMTetGeometry
 
-import render.renderutils as ru
+# import render.renderutils as ru
 from render import obj
-from render import material
+# from render import material
 from render import util
-from render import mesh
-from render import texture
-from render import mlptexture
-from render import light
-from render import render
-from geometry.sdf import train_sdfnerf
+# from render import mesh
+# from render import texture
+# from render import mlptexture
+# from render import light
+# from render import render
+# from geometry.sdf import train_sdfnerf
 from src.diffelastic.diff_model import DiffSoundObj
+from torch.utils.tensorboard import SummaryWriter
 
 RADIUS = 3.0
 
 # Enable to debug back-prop anomalies
 # torch.autograd.set_detect_anomaly(True)
-
-###############################################################################
-# Loss setup
-###############################################################################
-
-# @torch.no_grad()
-# def createLoss(FLAGS):
-#     if FLAGS.loss == "smape":
-#         return lambda img, ref: ru.image_loss(img, ref, loss='smape', tonemapper='none')
-#     elif FLAGS.loss == "mse":
-#         return lambda img, ref: ru.image_loss(img, ref, loss='mse', tonemapper='none')
-#     elif FLAGS.loss == "logl1":
-#         return lambda img, ref: ru.image_loss(img, ref, loss='l1', tonemapper='log_srgb')
-#     elif FLAGS.loss == "logl2":
-#         return lambda img, ref: ru.image_loss(img, ref, loss='mse', tonemapper='log_srgb')
-#     elif FLAGS.loss == "relmse":
-#         return lambda img, ref: ru.image_loss(img, ref, loss='relmse', tonemapper='none')
-#     else:
-#         assert False
-
-###############################################################################
-# Mix background into a dataset image
-###############################################################################
-
-# @torch.no_grad()
-# def prepare_batch(target, bg_type='black'):
-#     assert len(target['img'].shape) == 4, "Image shape should be [n, h, w, c]"
-#     if bg_type == 'checker':
-#         background = torch.tensor(util.checkerboard(target['img'].shape[1:3], 8), dtype=torch.float32, device='cuda')[None, ...]
-#     elif bg_type == 'black':
-#         background = torch.zeros(target['img'].shape[0:3] + (3,), dtype=torch.float32, device='cuda')
-#     elif bg_type == 'white':
-#         background = torch.ones(target['img'].shape[0:3] + (3,), dtype=torch.float32, device='cuda')
-#     elif bg_type == 'reference':
-#         background = target['img'][..., 0:3]
-#     elif bg_type == 'random':
-#         background = torch.rand(target['img'].shape[0:3] + (3,), dtype=torch.float32, device='cuda')
-#     else:
-#         assert False, "Unknown background type %s" % bg_type
-
-#     target['mv'] = target['mv'].cuda()
-#     target['mvp'] = target['mvp'].cuda()
-#     target['campos'] = target['campos'].cuda()
-#     target['img'] = target['img'].cuda()
-#     target['background'] = background
-
-#     target['img'] = torch.cat((torch.lerp(background, target['img'][..., 0:3], target['img'][..., 3:4]), target['img'][..., 3:4]), dim=-1)
-
-#     return target
-
-###############################################################################
-# UV - map geometry & convert to a mesh
-###############################################################################
-
-# @torch.no_grad()
-# def xatlas_uvmap(glctx, geometry, mat, FLAGS):
-#     eval_mesh = geometry.getMesh(mat)[0]
-    
-#     # Create uvs with xatlas
-#     v_pos = eval_mesh.v_pos.detach().cpu().numpy()
-#     t_pos_idx = eval_mesh.t_pos_idx.detach().cpu().numpy()
-#     vmapping, indices, uvs = xatlas.parametrize(v_pos, t_pos_idx)
-
-#     # Convert to tensors
-#     indices_int64 = indices.astype(np.uint64, casting='same_kind').view(np.int64)
-    
-#     uvs = torch.tensor(uvs, dtype=torch.float32, device='cuda')
-#     faces = torch.tensor(indices_int64, dtype=torch.int64, device='cuda')
-
-#     new_mesh = mesh.Mesh(v_tex=uvs, t_tex_idx=faces, base=eval_mesh)
-
-#     mask, kd, ks, normal = render.render_uv(glctx, new_mesh, FLAGS.texture_res, eval_mesh.material['kd_ks_normal'])
-    
-#     if FLAGS.layers > 1:
-#         kd = torch.cat((kd, torch.rand_like(kd[...,0:1])), dim=-1)
-
-#     kd_min, kd_max = torch.tensor(FLAGS.kd_min, dtype=torch.float32, device='cuda'), torch.tensor(FLAGS.kd_max, dtype=torch.float32, device='cuda')
-#     ks_min, ks_max = torch.tensor(FLAGS.ks_min, dtype=torch.float32, device='cuda'), torch.tensor(FLAGS.ks_max, dtype=torch.float32, device='cuda')
-#     nrm_min, nrm_max = torch.tensor(FLAGS.nrm_min, dtype=torch.float32, device='cuda'), torch.tensor(FLAGS.nrm_max, dtype=torch.float32, device='cuda')
-
-#     new_mesh.material = material.Material({
-#         'bsdf'   : mat['bsdf'],
-#         'kd'     : texture.Texture2D(kd, min_max=[kd_min, kd_max]),
-#         'ks'     : texture.Texture2D(ks, min_max=[ks_min, ks_max]),
-#         'normal' : texture.Texture2D(normal, min_max=[nrm_min, nrm_max])
-#     })
-
-#     return new_mesh
-
-###############################################################################
-# Utility functions for material
-###############################################################################
-
-# def initial_guess_material(geometry, mlp, FLAGS, init_mat=None):
-#     kd_min, kd_max = torch.tensor(FLAGS.kd_min, dtype=torch.float32, device='cuda'), torch.tensor(FLAGS.kd_max, dtype=torch.float32, device='cuda')
-#     ks_min, ks_max = torch.tensor(FLAGS.ks_min, dtype=torch.float32, device='cuda'), torch.tensor(FLAGS.ks_max, dtype=torch.float32, device='cuda')
-#     nrm_min, nrm_max = torch.tensor(FLAGS.nrm_min, dtype=torch.float32, device='cuda'), torch.tensor(FLAGS.nrm_max, dtype=torch.float32, device='cuda')
-#     if mlp:
-#         mlp_min = torch.cat((kd_min[0:3], ks_min, nrm_min), dim=0)
-#         mlp_max = torch.cat((kd_max[0:3], ks_max, nrm_max), dim=0)
-#         mlp_map_opt = mlptexture.MLPTexture3D(geometry.getAABB(), channels=9, min_max=[mlp_min, mlp_max])
-#         mat =  material.Material({'kd_ks_normal' : mlp_map_opt})
-#     else:
-#         # Setup Kd (albedo) and Ks (x, roughness, metalness) textures
-#         if FLAGS.random_textures or init_mat is None:
-#             num_channels = 4 if FLAGS.layers > 1 else 3
-#             kd_init = torch.rand(size=FLAGS.texture_res + [num_channels], device='cuda') * (kd_max - kd_min)[None, None, 0:num_channels] + kd_min[None, None, 0:num_channels]
-#             kd_map_opt = texture.create_trainable(kd_init , FLAGS.texture_res, not FLAGS.custom_mip, [kd_min, kd_max])
-
-#             ksR = np.random.uniform(size=FLAGS.texture_res + [1], low=0.0, high=0.01)
-#             ksG = np.random.uniform(size=FLAGS.texture_res + [1], low=ks_min[1].cpu(), high=ks_max[1].cpu())
-#             ksB = np.random.uniform(size=FLAGS.texture_res + [1], low=ks_min[2].cpu(), high=ks_max[2].cpu())
-
-#             ks_map_opt = texture.create_trainable(np.concatenate((ksR, ksG, ksB), axis=2), FLAGS.texture_res, not FLAGS.custom_mip, [ks_min, ks_max])
-#         else:
-#             kd_map_opt = texture.create_trainable(init_mat['kd'], FLAGS.texture_res, not FLAGS.custom_mip, [kd_min, kd_max])
-#             ks_map_opt = texture.create_trainable(init_mat['ks'], FLAGS.texture_res, not FLAGS.custom_mip, [ks_min, ks_max])
-
-#         # Setup normal map
-#         if FLAGS.random_textures or init_mat is None or 'normal' not in init_mat:
-#             normal_map_opt = texture.create_trainable(np.array([0, 0, 1]), FLAGS.texture_res, not FLAGS.custom_mip, [nrm_min, nrm_max])
-#         else:
-#             normal_map_opt = texture.create_trainable(init_mat['normal'], FLAGS.texture_res, not FLAGS.custom_mip, [nrm_min, nrm_max])
-
-#         mat = material.Material({
-#             'kd'     : kd_map_opt,
-#             'ks'     : ks_map_opt,
-#             'normal' : normal_map_opt
-#         })
-
-#     if init_mat is not None:
-#         mat['bsdf'] = init_mat['bsdf']
-#     else:
-#         mat['bsdf'] = 'pbr'
-
-#     return mat
-
-###############################################################################
-# Validation & testing
-###############################################################################
-
-# def validate_itr(glctx, target, geometry, opt_material, lgt, FLAGS):
-#     result_dict = {}
-#     with torch.no_grad():
-#         lgt.build_mips()
-#         if FLAGS.camera_space_light:
-#             lgt.xfm(target['mv'])
-
-#         buffers = geometry.render(glctx, target, lgt, opt_material)
-
-#         result_dict['ref'] = util.rgb_to_srgb(target['img'][...,0:3])[0]
-#         result_dict['opt'] = util.rgb_to_srgb(buffers['shaded'][...,0:3])[0]
-#         result_image = torch.cat([result_dict['opt'], result_dict['ref']], axis=1)
-
-#         if FLAGS.display is not None:
-#             white_bg = torch.ones_like(target['background'])
-#             for layer in FLAGS.display:
-#                 if 'latlong' in layer and layer['latlong']:
-#                     if isinstance(lgt, light.EnvironmentLight):
-#                         result_dict['light_image'] = util.cubemap_to_latlong(lgt.base, FLAGS.display_res)
-#                     result_image = torch.cat([result_image, result_dict['light_image']], axis=1)
-#                 elif 'relight' in layer:
-#                     if not isinstance(layer['relight'], light.EnvironmentLight):
-#                         layer['relight'] = light.load_env(layer['relight'])
-#                     img = geometry.render(glctx, target, layer['relight'], opt_material)
-#                     result_dict['relight'] = util.rgb_to_srgb(img[..., 0:3])[0]
-#                     result_image = torch.cat([result_image, result_dict['relight']], axis=1)
-#                 elif 'bsdf' in layer:
-#                     buffers = geometry.render(glctx, target, lgt, opt_material, bsdf=layer['bsdf'])
-#                     if layer['bsdf'] == 'kd':
-#                         result_dict[layer['bsdf']] = util.rgb_to_srgb(buffers['shaded'][0, ..., 0:3])  
-#                     elif layer['bsdf'] == 'normal':
-#                         result_dict[layer['bsdf']] = (buffers['shaded'][0, ..., 0:3] + 1) * 0.5
-#                     else:
-#                         result_dict[layer['bsdf']] = buffers['shaded'][0, ..., 0:3]
-#                     result_image = torch.cat([result_image, result_dict[layer['bsdf']]], axis=1)
-   
-#         return result_image, result_dict
-
-# def validate(glctx, geometry, opt_material, lgt, dataset_validate, out_dir, FLAGS):
-
-#     # ==============================================================================================
-#     #  Validation loop
-#     # ==============================================================================================
-#     mse_values = []
-#     psnr_values = []
-
-#     dataloader_validate = torch.utils.data.DataLoader(dataset_validate, batch_size=1, collate_fn=dataset_validate.collate)
-
-#     os.makedirs(out_dir, exist_ok=True)
-#     with open(os.path.join(out_dir, 'metrics.txt'), 'w') as fout:
-#         fout.write('ID, MSE, PSNR\n')
-
-#         print("Running validation")
-#         for it, target in enumerate(dataloader_validate):
-
-#             # Mix validation background
-#             target = prepare_batch(target, FLAGS.background)
-
-#             result_image, result_dict = validate_itr(glctx, target, geometry, opt_material, lgt, FLAGS)
-           
-#             # Compute metrics
-#             opt = torch.clamp(result_dict['opt'], 0.0, 1.0) 
-#             ref = torch.clamp(result_dict['ref'], 0.0, 1.0)
-
-#             mse = torch.nn.functional.mse_loss(opt, ref, size_average=None, reduce=None, reduction='mean').item()
-#             mse_values.append(float(mse))
-#             psnr = util.mse_to_psnr(mse)
-#             psnr_values.append(float(psnr))
-
-#             line = "%d, %1.8f, %1.8f\n" % (it, mse, psnr)
-#             fout.write(str(line))
-
-#             for k in result_dict.keys():
-#                 np_img = result_dict[k].detach().cpu().numpy()
-#                 util.save_image(out_dir + '/' + ('val_%06d_%s.png' % (it, k)), np_img)
-
-#         avg_mse = np.mean(np.array(mse_values))
-#         avg_psnr = np.mean(np.array(psnr_values))
-#         line = "AVERAGES: %1.4f, %2.3f\n" % (avg_mse, avg_psnr)
-#         fout.write(str(line))
-#         print("MSE,      PSNR")
-#         print("%1.8f, %2.3f" % (avg_mse, avg_psnr))
-#     return avg_psnr
-
 ###############################################################################
 # Main shape fitter function / optimization loop
 ###############################################################################
@@ -296,25 +72,12 @@ def optimize_mesh(
     #  Setup torch optimizer
     # ==============================================================================================
     learning_rate_thickness = FLAGS.learning_rate
-    # def lr_schedule(iter, fraction):
-    #     if iter < warmup_iter:
-    #         return iter / warmup_iter 
-    #     return max(0.0, 10**(-(iter - warmup_iter)*0.0002)) # Exponential falloff from [1.0, 0.1] over 5k epochs.    
-
     trainer = Trainer(geometry, FLAGS)
-    # if FLAGS.isosurface == 'flexicubes':
-    #     betas = (0.7, 0.9)
-    # else:
-    #     betas = (0.9, 0.999)
-
     optimizer_thickness = torch.optim.Adam(trainer.geo_params, lr=learning_rate_thickness)
-    # optimizer = torch.optim.Adam(trainer_noddp.params, lr=learning_rate_mat)
-    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda x: lr_schedule(x, 0.9)) 
 
     # ==============================================================================================
     #  Training loop
     # ==============================================================================================
-    img_cnt = 0
     audio_loss_vec = []
     iter_dur_vec = []
     
@@ -336,6 +99,7 @@ def optimize_mesh(
         # ==============================================================================================
         #  Logging
         # ==============================================================================================
+        
         if it % log_interval == 0 and FLAGS.local_rank == 0:
             audio_loss_avg = np.mean(np.asarray(audio_loss_vec[-log_interval:]))
             iter_dur_avg = np.mean(np.asarray(iter_dur_vec[-log_interval:]))
@@ -378,7 +142,7 @@ if __name__ == "__main__":
 
     FLAGS.mtl_override        = None                     # Override material of model
     FLAGS.dmtet_grid          = 32                       # Resolution of initial tet grid. We provide 64 and 128 resolution grids. Other resolutions can be generated with https://github.com/crawforddoran/quartet
-    FLAGS.mesh_scale          = 2.7                        # Scale of tet grid box. Adjust to cover the model
+    FLAGS.mesh_scale          = 2.5                        # Scale of tet grid box. Adjust to cover the model
     FLAGS.env_scale           = 1.0                      # Env map intensity multiplier
     FLAGS.envmap              = None                     # HDR environment probe
     FLAGS.display             = None                     # Conf validation window/display. E.g. [{"relight" : <path to envlight>}]
@@ -421,8 +185,6 @@ if __name__ == "__main__":
         FLAGS.out_dir = 'out/cube_%d' % (FLAGS.train_res)
     else:
         FLAGS.out_dir = 'out/' + FLAGS.out_dir
-    
-    # os.environ['CUDA_VISIBLE_DEVICES'] = str(FLAGS.device)
 
     if FLAGS.local_rank == 0:
         print("Config / Flags:")
@@ -433,43 +195,47 @@ if __name__ == "__main__":
 
     os.makedirs(FLAGS.out_dir, exist_ok=True)
 
-    # glctx = dr.RasterizeGLContext()
-
-    # ==============================================================================================
-    #  Create data pipeline
-    # ==============================================================================================
-    target_mesh         = mesh.load_mesh(FLAGS.target_mesh, FLAGS.mtl_override)
+    # first, generate meshes with certain thickness(0.3, 0.4, 0.5, 0.6, 0.7)
+    thickness_list = [0.3,0.4,0.5,0.6,0.7]
+    for thickness in thickness_list:
+        init_geometry = DMTetGeometry(128, FLAGS.mesh_scale, FLAGS)
+        init_geometry.apply_sdf(FLAGS.init_mesh_dir, FLAGS)
+        init_triangle_mesh = init_geometry.getMesh(return_triangle=True, thickness_coef=thickness)
+        os.makedirs(os.path.join(FLAGS.out_dir, "mesh"), exist_ok=True)
+        obj.write_obj(os.path.join(FLAGS.out_dir, "mesh/"), init_triangle_mesh, name=f"thickness{thickness}.obj")
     
-    # load tet mesh (not triangle!) for ground truth audio
-    # target_tetmesh = meshio.read(FLAGS.target_mesh[:-4] + ".msh")
-    
-    # generate ground truth audio (now: eigenvalues of each mode)
-    # vertices = torch.Tensor(target_tetmesh.points).cuda()
-    # tets = torch.Tensor(target_tetmesh.cells[0].data).long().cuda()
-    # print('Load tetramesh with ', len(vertices),
-    #     ' vertices & ', len(tets), ' tets')
-    
-    # target_sound_obj = DiffSoundObj(vertices, tets, mode_num=FLAGS.mode_num, order=FLAGS.order)
-    # target_sound_obj.eigen_decomposition()
-    # target_vals = target_sound_obj.get_vals()
-    target_geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
-    target_geometry.apply_sdf(FLAGS.init_mesh_dir, FLAGS)
-    target_vals = target_geometry.get_eigenvalues(thickness_coef=0.2)
-    print("ground truth eigenvalues:", target_vals)
-    # target_vals = 0 # debug
+    # then try to fit the thickness and save the result to file
+    file = open(os.path.join(FLAGS.out_dir, "result.txt"), "a+", encoding="utf-8")
+    file.write(f"material:{FLAGS.mat}\n")
+    total_error = 0
+    for thickness in thickness_list:
+        target_dir = os.path.join(FLAGS.out_dir, f"mesh/thickness{thickness}.obj")
+        target_geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
+        target_geometry.apply_sdf(target_dir, FLAGS)
+        target_vals = target_geometry.get_eigenvalues(thickness_coef=1.0)
+        print("ground truth eigenvalues:", target_vals)
 
-    # Setup geometry for optimization
-    geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
-    
-    # if we have initial mesh for sdf nerf training, train it
-    # if FLAGS.init_mesh: # we need init mesh!
-    geometry.apply_sdf(FLAGS.init_mesh_dir, FLAGS)
+        # Setup geometry for optimization
+        geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
+        
+        # if we have initial mesh for sdf nerf training, train it
+        geometry.apply_sdf(FLAGS.init_mesh_dir, FLAGS)
 
-    # Run optimization
-    geometry = optimize_mesh(geometry, target_vals, FLAGS)
+        # Run optimization
+        geometry = optimize_mesh(geometry, target_vals, FLAGS)
 
-    final_mesh = geometry.getMesh(return_triangle=True)
-    os.makedirs(os.path.join(FLAGS.out_dir, "mesh"), exist_ok=True)
-    obj.write_obj(os.path.join(FLAGS.out_dir, "mesh/"), final_mesh)
+        final_mesh = geometry.getMesh(return_triangle=True)
+        os.makedirs(os.path.join(FLAGS.out_dir, "mesh"), exist_ok=True)
+        obj.write_obj(os.path.join(FLAGS.out_dir, "mesh/"), final_mesh, name=f"result{thickness}.obj")
+        
+        result_thickness = geometry.marching_tets.thickness_coef().item()
+        total_error += (result_thickness - thickness) ** 2 / 5
+        
+        print(f"target:{thickness} result:{result_thickness}")
+        file.write(f"target:{thickness} result:{result_thickness}\n")
+    print(f"total error:{total_error}")
+    file.write(f"total error:{total_error}\n")
+    file.close()
+        
 
 #----------------------------------------------------------------------------

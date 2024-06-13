@@ -11,7 +11,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": false
         },
         {
             "name": "check_dmtet",
@@ -77,25 +77,40 @@
             "args": ["--config", "configs/sphere_thickness.json"]
         },
         {
-            "name": "CUDA-python-test",
-            "type": "cppdbg",
+            "name": "arma-thickness",
+            "type": "python",
             "request": "launch",
-            "program": "/home/xuchenxi/.conda/envs/xcx/bin/python",
-            "args": [
-                "${file}"
-            ],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/local/cuda/bin/cuda-gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
+            "program": "experiments/train_sound_thickness.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/arma_thickness.json"]
+        },
+        {
+            "name": "bunny-thickness",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound_thickness.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/bunny_thickness.json"]
+        },
+        {
+            "name": "frog-thickness",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound_thickness.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/frog_thickness.json"]
+        },
+        {
+            "name": "dragon-thickness",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/train_sound_thickness.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/dragon_thickness.json"]
         },
     ]
 }

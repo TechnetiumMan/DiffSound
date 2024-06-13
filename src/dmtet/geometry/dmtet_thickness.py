@@ -18,8 +18,10 @@ from render import render
 import sys
 sys.path.append("./")
 from src.diffelastic.diff_model import DiffSoundObj
+from src.diffelastic.material_model import MatSet
 import open3d as o3d
 from src.dmtet.geometry.sdf import WeightedParam
+from torch.utils.tensorboard import SummaryWriter
 
 ###############################################################################
 # Marching tetrahedrons implementation (differentiable), adapted from
@@ -153,7 +155,7 @@ class DMTet:
         with torch.no_grad():
             # add thickness here for hollow objects
             # occ_n = (sdf_n > 0 and sdf_n < thickness)
-            occ_n = (sdf_n > 0) & (sdf_n < thickness)
+            occ_n = (sdf_n > 0) & (sdf_n <= thickness)
             
             occ_fx4 = occ_n[tet_fx4.reshape(-1)].reshape(-1,4)
             occ_sum = torch.sum(occ_fx4, -1)
@@ -252,7 +254,7 @@ class DMTet:
         # add inner tets to tetmesh
         all_verts = torch.cat([pos_nx3, verts], dim=0)
         with torch.no_grad():
-            occ_n = sdf_n > 0
+            occ_n = (sdf_n > 0) & (sdf_n <= thickness)
             occ_fx4 = occ_n[tet_fx4.reshape(-1)].reshape(
                 -1, 4
             )
@@ -281,6 +283,7 @@ class DMTetGeometry(torch.nn.Module):
         self.FLAGS         = FLAGS
         self.grid_res      = grid_res
         self.marching_tets = DMTet()
+        self.writer = SummaryWriter(FLAGS.out_dir + "/tensorboard")
         
         # self.sdf_regularizer = 0.02
 
@@ -332,12 +335,16 @@ class DMTetGeometry(torch.nn.Module):
         #     return imesh, sound_obj
         if return_triangle:
             imesh = mesh.Mesh(verts, faces)
-            imesh = mesh.auto_normals(imesh)
-            imesh = mesh.compute_tangents(imesh)
+            # imesh = mesh.auto_normals(imesh)
+            # imesh = mesh.compute_tangents(imesh)
             return imesh
         else:
             verts_tetmesh, tets_tetmesh = self.get_largest_connected_component(verts_tetmesh, tets_tetmesh)
-            sound_obj = DiffSoundObj(verts_tetmesh, tets_tetmesh, mode_num=self.FLAGS.mode_num, order=self.FLAGS.order)
+            if hasattr(self.FLAGS, "mat"):
+                mat = getattr(MatSet, self.FLAGS.mat)
+            else:
+                mat = MatSet.Ceramic
+            sound_obj = DiffSoundObj(verts_tetmesh, tets_tetmesh, mode_num=self.FLAGS.mode_num, order=self.FLAGS.order, mat=mat)
             return sound_obj
         
     def get_largest_connected_component(self, verts, tets):
@@ -373,15 +380,17 @@ class DMTetGeometry(torch.nn.Module):
         valid_tets = (tets >= 0).all(dim=1)
         return verts_subset, tets[valid_tets]
 
-    def tick(self, target, iteration, FLAGS):
+    def tick(self, target, it, FLAGS):
         sound_obj = self.getMesh()
 
         # add audio loss
         sound_obj.eigen_decomposition()
         vals = sound_obj.get_vals()
-        audio_loss = ((vals - target) ** 2 / vals**2).mean()
+        audio_loss = ((vals - target) ** 2 / target**2).mean()
         
         print("thickness",self.marching_tets.thickness_coef().item(), "audio_loss", audio_loss.item())
+        self.writer.add_scalar('loss', audio_loss.item(), it)
+        self.writer.add_scalar('thickness', self.marching_tets.thickness_coef().item(), it)
         
         return audio_loss
     
@@ -409,6 +418,9 @@ class DMTetGeometry(torch.nn.Module):
             sound_obj.eigen_decomposition()
             vals = sound_obj.get_vals()
         return vals
+    
+    def get_thickness(self):
+        return self.marching_tets.thickness_coef()
         
         
         

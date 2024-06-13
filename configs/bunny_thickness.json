@@ -1,0 +1,11 @@
+{
+    "iter": 500,
+    "save_interval": 20,
+    "batch": 4,
+    "learning_rate": 5e-2,
+    "out_dir": "bunny_thickness",
+    "init_mesh_dir": "data/mesh/bunny.obj",
+    "dmtet_grid": 64,
+    "mesh_scale": 1.6,
+    "mat": "Ceramic"
+}
