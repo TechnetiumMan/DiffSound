@@ -1,2 +1,2 @@
 # DiffSound
-code for paper DiffSound: Differentiable Modal Sound Rendering and Inverse Rendering for Diverse Inference Tasks
+The code will soon be open source.
