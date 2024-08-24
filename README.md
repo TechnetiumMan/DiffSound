@@ -20,4 +20,17 @@ make
 ```
 Then add the build directory to the environment variable PATH.
 
+## Experiments
+
+### Volumetric Thickness Inference
+first, generate hollow meshes with specific thicknesses from initial solid mesh:
+```bash
+python experiments/thickness_generate.py --config configs/thickness_generate.json
+```
+then, infer the thickness for each generated hollow mesh and its modal sound:
+```bash
+python experiments/thickness_train.py --config configs/thickness_train.json
+```
+the infer result and mesh is saved in ```out_dir``` (default: ```out/thickness```)
+
 ### 

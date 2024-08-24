@@ -5,7 +5,7 @@ import os
 from glob import glob
 import torch
 from .gauss import *
-from ..utils.grad import *
+# from ..utils.grad import *
 from torch_scatter import scatter
 
 

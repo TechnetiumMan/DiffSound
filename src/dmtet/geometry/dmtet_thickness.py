@@ -1,20 +1,6 @@
-# Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved. 
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction, 
-# disclosure or distribution of this material and related documentation 
-# without an express license agreement from NVIDIA CORPORATION or 
-# its affiliates is strictly prohibited.
-
-from typing import Iterator
 import numpy as np
 import torch
-from torch.nn.parameter import Parameter
-
 from render import mesh
-from render import render
-
 import sys
 sys.path.append("./")
 from src.diffelastic.diff_model import DiffSoundObj
@@ -23,10 +9,6 @@ import open3d as o3d
 from src.dmtet.geometry.sdf import WeightedParam
 from torch.utils.tensorboard import SummaryWriter
 
-###############################################################################
-# Marching tetrahedrons implementation (differentiable), adapted from
-# https://github.com/NVIDIAGameWorks/kaolin/blob/master/kaolin/ops/conversions/tetmesh.py
-###############################################################################
 
 class DMTet:
     def __init__(self):
@@ -110,37 +92,6 @@ class DMTet:
 
         return torch.stack([a, b],-1)
 
-    # def map_uv(self, faces, face_gidx, max_idx):
-    #     N = int(np.ceil(np.sqrt((max_idx+1)//2)))
-    #     tex_y, tex_x = torch.meshgrid(
-    #         torch.linspace(0, 1 - (1 / N), N, dtype=torch.float32, device="cuda"),
-    #         torch.linspace(0, 1 - (1 / N), N, dtype=torch.float32, device="cuda"),
-    #         indexing='ij'
-    #     )
-
-    #     pad = 0.9 / N
-
-    #     uvs = torch.stack([
-    #         tex_x      , tex_y,
-    #         tex_x + pad, tex_y,
-    #         tex_x + pad, tex_y + pad,
-    #         tex_x      , tex_y + pad
-    #     ], dim=-1).view(-1, 2)
-
-    #     def _idx(tet_idx, N):
-    #         x = tet_idx % N
-    #         y = torch.div(tet_idx, N, rounding_mode='trunc')
-    #         return y * N + x
-
-    #     tet_idx = _idx(torch.div(face_gidx, 2, rounding_mode='trunc'), N)
-    #     tri_idx = face_gidx % 2
-
-    #     uv_idx = torch.stack((
-    #         tet_idx * 4, tet_idx * 4 + tri_idx + 1, tet_idx * 4 + tri_idx + 2
-    #     ), dim = -1). view(-1, 3)
-
-    #     return uvs, uv_idx
-
     ###############################################################################
     # Marching tets implementation
     ###############################################################################
@@ -153,16 +104,17 @@ class DMTet:
             thickness = thickness_coef * self.max_thickness
         
         with torch.no_grad():
-            # add thickness here for hollow objects
-            # occ_n = (sdf_n > 0 and sdf_n < thickness)
+            # find all vertices between inner and outer surface
             occ_n = (sdf_n > 0) & (sdf_n <= thickness)
             
             occ_fx4 = occ_n[tet_fx4.reshape(-1)].reshape(-1,4)
             occ_sum = torch.sum(occ_fx4, -1)
-            valid_tets = (occ_sum>0) & (occ_sum<4)
+            valid_tets = (occ_sum>0) & (occ_sum<4) # all tets with at least one vertex inside the hollow mesh and one vertex outside the mesh
             # occ_sum = occ_sum[valid_tets]
 
-            # find all vertices
+            # we consider edges both on inner surface and outer surface
+            # for each edge which has one vertex inside the mesh and one vertex outside the mesh, 
+            # we interpolate the position of the vertex on the edge based on the sdf value of the two vertices
             all_edges = tet_fx4[valid_tets][:,self.base_tet_edges].reshape(-1,2)
             all_edges = self.sort_edges(all_edges)
             unique_edges, idx_map = torch.unique(all_edges,dim=0, return_inverse=True)  
@@ -178,9 +130,10 @@ class DMTet:
         edges_to_interp = pos_nx3[interp_v.reshape(-1)].reshape(-1,2,3)
         edges_to_interp_sdf = sdf_n[interp_v.reshape(-1)].reshape(-1,2,1)
         
-        
-        # 现在edges_to_interp_sdf有两种情况：第一种 x < 0, 0 < y < thickness, 第二种 0 < x < thickness, y > thickness
-        # 只需要对所有x>0且y>0的两条边的sdf值同时减去thickness即可
+        # Now there are two situations for edges_to_interp_sdf: 
+        # the first one is x < 0, 0 < y < thickness, 
+        # the second one is 0 < x < thickness, y > thickness
+        # Just subtract thickness value from the sdf values of the two edges with x>0 and y>0
         edges_to_interp_sdf[(edges_to_interp_sdf[:,0,0] > 0) & (edges_to_interp_sdf[:,1,0] > 0)] -= thickness
         
         edges_to_interp_sdf[:,-1] *= -1
@@ -202,33 +155,6 @@ class DMTet:
             torch.gather(input=idx_map[num_triangles == 2], dim=1, index=self.triangle_table[tetindex[num_triangles == 2]][:, :6]).reshape(-1,3),
         ), dim=0)
         
-        # # 必须在这里去除碎片，以使得uv_idx和去除碎片后的mesh相统一！
-        # verts_connected, faces_connected = get_largest_connected_component_triangle(verts, faces)
-        
-        # # 现在，我们必须更新valid tets, 只留下去除碎片后的tets
-        # # 首先找到原有顶点中哪些顶点在去除碎片后仍然存在
-        # verts_connect_matches = torch.all(torch.eq(verts.unsqueeze(0), verts_connected.unsqueeze(1)), dim=-1)
-        # verts_connect_idx = torch.where(verts_connect_matches)[1] # (n_verts_connected) in range (n_verts)
-        
-        # # 找到含有剩余顶点的面
-        # faces_origin_idx = verts_connect_idx[faces_connected] # 是faces的真子集
-        # faces_connect_matches = torch.all(torch.eq(faces.unsqueeze(0), faces_origin_idx.unsqueeze(1)), dim=-1)
-        # faces_connect_idx = torch.where(faces_connect_matches)[1] # 每个剩余的面在faces中的下标
-
-        # Get global face index (static, does not depend on topology)
-        # 找到所有有效面，用其下标做uv map
-        # num_tets = tet_fx4.shape[0]
-        # tet_gidx = torch.arange(num_tets, dtype=torch.long, device="cuda")[valid_tets] # 所有有效四面体在所有四面体中的全局编号
-        # face_gidx = torch.cat((
-        #     tet_gidx[num_triangles == 1]*2,
-        #     torch.stack((tet_gidx[num_triangles == 2]*2, tet_gidx[num_triangles == 2]*2 + 1), dim=-1).view(-1)
-        # ), dim=0) # 由于每个四面体至多有两个有效面，所以直接用四面体的全局编号*2作为有效面的全局编号
-
-        # uvs, uv_idx = self.map_uv(faces, face_gidx, num_tets*2)
-        
-        # # 为了使得uv map对应上去除碎片后的tet，需要更新uv_idx
-        # uv_idx_connected = uv_idx[faces_connect_idx]
-        
         # generate tetmesh (the same of triangle mesh above)(verts and vert indices of each tet)
         num_tets_of_each_tet = self.num_tets_table[tetindex]
         valid_tets_vert_idx = tet_fx4[valid_tets]
@@ -249,7 +175,7 @@ class DMTet:
                     index=self.tet_table[tetindex[num_tets_of_each_tet == 3]][:, :12],
                 ).reshape(-1, 4),
             ),dim=0,
-        )
+        ) # all tets with interpolated vertices
         
         # add inner tets to tetmesh
         all_verts = torch.cat([pos_nx3, verts], dim=0)
@@ -271,7 +197,6 @@ class DMTet:
         all_tets_tetmesh = all_unique_verts_idx_map.reshape(-1, 4)
         all_verts_tetmesh = all_verts[all_unique_tets]
 
-        # return verts_connected, faces_connected, uvs, uv_idx_connected, all_verts_tetmesh, all_tets_tetmesh
         return verts, faces, all_verts_tetmesh, all_tets_tetmesh
 
 import scipy.sparse as sp
@@ -283,9 +208,9 @@ class DMTetGeometry(torch.nn.Module):
         self.FLAGS         = FLAGS
         self.grid_res      = grid_res
         self.marching_tets = DMTet()
-        self.writer = SummaryWriter(FLAGS.out_dir + "/tensorboard")
         
-        # self.sdf_regularizer = 0.02
+        if not hasattr(FLAGS, "without_tensorboard"):
+            self.writer = SummaryWriter(FLAGS.out_dir + "/tensorboard")
 
         tets = np.load('data/tets/{}_tets.npz'.format(self.grid_res))
         self.base_verts = torch.tensor(
@@ -297,12 +222,6 @@ class DMTetGeometry(torch.nn.Module):
         
         # init sdf for loading init mesh
         self.sdf = torch.zeros_like(self.verts[:,0])
-        
-        # self.sdf    = torch.nn.Parameter(sdf.clone().detach(), requires_grad=True)
-        # self.register_parameter('sdf', self.sdf)
-
-        # self.deform = torch.nn.Parameter(torch.zeros_like(self.verts), requires_grad=True)
-        # self.register_parameter('deform', self.deform)
     
     def generate_edges(self):
         with torch.no_grad():
@@ -316,23 +235,8 @@ class DMTetGeometry(torch.nn.Module):
         return torch.min(self.verts, dim=0).values, torch.max(self.verts, dim=0).values
 
     def getMesh(self, return_triangle=False, thickness_coef=None):
-        # Run DM tet to get a base mesh
-        # v_deformed = self.verts + 2 / (self.grid_res * 2) * torch.tanh(self.deform)
+        # Run DMtet to get a base mesh
         verts, faces, verts_tetmesh, tets_tetmesh = self.marching_tets(self.verts, self.sdf, self.indices, thickness_coef)
-        
-        # build triangle mesh
-        # if material:
-            # imesh = mesh.Mesh(verts, faces, v_tex=uvs, t_tex_idx=uv_idx, material=material)
-
-            # # Run mesh operations to generate tangent space
-            # imesh = mesh.auto_normals(imesh)
-            # imesh = mesh.compute_tangents(imesh)
-            
-            # build tetmesh
-        #     verts_tetmesh, tets_tetmesh = self.get_largest_connected_component(verts_tetmesh, tets_tetmesh)
-        #     sound_obj = DiffSoundObj(verts_tetmesh, tets_tetmesh, mode_num=self.FLAGS.mode_num, order=self.FLAGS.order)
-
-        #     return imesh, sound_obj
         if return_triangle:
             imesh = mesh.Mesh(verts, faces)
             # imesh = mesh.auto_normals(imesh)

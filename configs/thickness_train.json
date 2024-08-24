@@ -1,0 +1,12 @@
+{
+    "iter": 500,
+    "learning_rate": 2e-2,
+    "out_dir": "out/thickness/",
+    "target_mesh_dir": "data/thickness/",
+    "init_mesh_dir": "data/mesh/",
+    "mesh_name": "frog",
+    "mesh_scale": 1.5,
+    "thickness_list": [0.3, 0.4, 0.5, 0.6, 0.7],
+    "dmtet_grid": 64,
+    "mat": "Steel"
+}

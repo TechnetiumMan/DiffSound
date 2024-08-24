@@ -14,40 +14,12 @@
             "justMyCode": false
         },
         {
-            "name": "check_dmtet",
-            "type": "python",
-            "request": "launch",
-            "program": "test/check_dmtet.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            // "args": ["--config", 
-            // "configs/bob_test.json"]
-        },
-        {
             "name": "dmtet_shape",
             "type": "python",
             "request": "launch",
             "program": "experiments/dmtet_shape.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-        },
-        {
-            "name": "sphere",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train_sound.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "args": ["--config", "configs/sphere.json"]
-        },
-        {
-            "name": "small-rotate",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train_sound.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "args": ["--config", "configs/sphere_small_rotate.json"]
         },
         {
             "name": "sdf-nerf",
@@ -59,13 +31,22 @@
             "args": ["--config", "configs/sdf_nerf.json"]
         },
         {
-            "name": "sdf-nerf-audio",
+            "name": "generate-thickness-mesh",
             "type": "python",
             "request": "launch",
-            "program": "experiments/train_sound.py",
+            "program": "experiments/thickness_generate.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--config", "configs/sdf_nerf_audio0.001.json"]
+            "args": ["--config", "configs/thickness_generate.json"]
+        },
+        {
+            "name": "thickness_train",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/thickness_train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/thickness_train.json"]
         },
         {
             "name": "sphere-thickness",

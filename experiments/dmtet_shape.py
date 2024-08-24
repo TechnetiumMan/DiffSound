@@ -102,5 +102,3 @@ for i in range(num_iter):
     if i % 10 == 0:
         torch.save([verts, tets], "output/dmtet_{}.pth".format(i))
         
-    # 重点在于，要让别人看到，没有这个声音就不可能训出来这个东西
-    # loss改成频谱loss，固定一个好训的loss

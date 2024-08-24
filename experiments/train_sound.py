@@ -29,7 +29,7 @@ from dataset.dataset_mesh import DatasetMesh
 
 # Import topology / geometry trainers
 from geometry.dmtet import DMTetGeometry
-from geometry.dlmesh import DLMesh
+# from geometry.dlmesh import DLMesh
 
 import render.renderutils as ru
 from render import obj
