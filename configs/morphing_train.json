@@ -1,0 +1,13 @@
+{
+    "iter": 10,
+    "learning_rate": 2e-2,
+    "out_dir": "out/morphing/",
+    "target_mesh_dir": "data/morphing/",
+    "init_mesh_dir": "data/mesh/",
+    "mesh_name1": "frog",
+    "mesh_name2": "turtle",
+    "mesh_scale": 1.5,
+    "morphing_list": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    "dmtet_grid": 64,
+    "mat": "Steel"
+}

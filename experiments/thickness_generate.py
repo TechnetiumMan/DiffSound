@@ -18,10 +18,6 @@ sys.path.append("src/dmtet/")
 from geometry.dmtet_thickness import DMTetGeometry
 from render import obj
 
-#----------------------------------------------------------------------------
-# Main function.
-#----------------------------------------------------------------------------
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='nvdiffrec')
     parser.add_argument('--config', type=str, default=None, help='Config file')

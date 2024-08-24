@@ -1,6 +1,7 @@
-# Infer an object's thickness based on modal sound
-# we generated meshes with different thicknesses, 
-# for each mesh, we generate its modal eigenvalues as the target for the thickness inference
+# If a mesh is morphing between two meshes, 
+# we want to infer the morphing coeffecient (which mesh is closer to the morphing mesh) based on the modal sound.
+# we generated meshes with different morphing coeffecient from two initial meshes, 
+# for each generated mesh, we generate its modal eigenvalues as the target for the morphing coeffecient inference
 
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = "0"
@@ -10,13 +11,17 @@ import json
 
 import numpy as np
 import torch
+# import nvdiffrast.torch as dr
+# import xatlas
+
+# import meshio
 from tqdm import tqdm
 
 import sys
 sys.path.append("src/dmtet/")
 
 # Import topology / geometry trainers
-from geometry.dmtet_thickness import DMTetGeometry
+from geometry.dmtet_interpolate import DMTetGeometry
 
 from render import obj
 from render import util
@@ -43,7 +48,6 @@ def optimize_mesh(
     geometry,
     target,
     FLAGS,
-    # warmup_iter=0,
     log_interval=10,  
     ):
 
@@ -101,8 +105,11 @@ if __name__ == "__main__":
     
     FLAGS = parser.parse_args()
 
-    # for multi modal(audio) training
-    FLAGS.mode_num = 32
+    # FLAGS.dmtet_grid          = 32                       # Resolution of initial tet grid. We provide 64 and 128 resolution grids. Other resolutions can be generated with https://github.com/crawforddoran/quartet
+    # FLAGS.mesh_scale          = 2.5                        # Scale of tet grid box. Adjust to cover the model
+    
+    # for multi model(audio) training
+    FLAGS.mode_num = 16
     FLAGS.order = 1
 
     if FLAGS.config is not None:
@@ -117,41 +124,43 @@ if __name__ == "__main__":
     print("---------")
 
     os.makedirs(FLAGS.out_dir, exist_ok=True)
-
-    thickness_list = FLAGS.thickness_list # [0.3, 0.4, 0.5, 0.6, 0.7]
-
-    # try to fit the thickness and save the result to file
-    file = open(os.path.join(FLAGS.out_dir, f"result_{FLAGS.mesh_name}.txt"), "a+", encoding="utf-8")
+  
+    # then try to fit the thickness and save the result to file
+    file = open(os.path.join(FLAGS.out_dir, "result.txt"), "a+", encoding="utf-8")
     file.write(f"material:{FLAGS.mat}\n")
+    file.write(f"shape1:{FLAGS.init_mesh_dir + FLAGS.mesh_name1}.obj\n")
+    file.write(f"shape2:{FLAGS.init_mesh_dir + FLAGS.mesh_name2}.obj\n")
+
+    interp_list = FLAGS.morphing_list
+    
     total_error = 0
-    for thickness in thickness_list:
-        target_dir = os.path.join(FLAGS.target_mesh_dir, FLAGS.mesh_name, f"thickness{thickness}.obj")
+    for interp_coef in interp_list:
+        target_dir = os.path.join(FLAGS.target_mesh_dir, f"{FLAGS.mesh_name1}_{FLAGS.mesh_name2}", f"morphing{interp_coef}.obj")
         target_geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
-        target_geometry.apply_sdf(target_dir, FLAGS)
-        target_vals = target_geometry.get_eigenvalues(thickness_coef=1.0)
+        target_geometry.apply_sdf(target_dir)
+        target_vals = target_geometry.get_eigenvalues(using_interp=False)
         print("ground truth eigenvalues:", target_vals)
 
-        # Setup geometry for optimization
         geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
-        
-        # use the initial solid mesh as the input mesh
-        geometry.apply_sdf(FLAGS.init_mesh_dir + FLAGS.mesh_name + ".obj")
+        geometry.apply_sdf2(FLAGS.init_mesh_dir + FLAGS.mesh_name1 + ".obj",
+                            FLAGS.init_mesh_dir + FLAGS.mesh_name2 + ".obj")
 
-        # Run thickness optimization
+        # Run optimization
         geometry = optimize_mesh(geometry, target_vals, FLAGS)
 
         final_mesh = geometry.getMesh(return_triangle=True)
-        os.makedirs(os.path.join(FLAGS.out_dir, f"{FLAGS.mesh_name}"), exist_ok=True)
-        obj.write_obj(os.path.join(FLAGS.out_dir, f"{FLAGS.mesh_name}/"), final_mesh, name=f"result{thickness}.obj")
+        os.makedirs(os.path.join(FLAGS.out_dir, f"{FLAGS.mesh_name1}_{FLAGS.mesh_name2}"), exist_ok=True)
+        obj.write_obj(os.path.join(FLAGS.out_dir, f"{FLAGS.mesh_name1}_{FLAGS.mesh_name2}"), final_mesh, name=f"result{interp_coef}.obj")
         
-        result_thickness = geometry.marching_tets.thickness_coef().item()
-        total_error += (result_thickness - thickness) ** 2 / 5
-        
-        print(f"target:{thickness} result:{result_thickness}")
-        file.write(f"target:{thickness} result:{result_thickness}\n")
+        result_interp_coef = geometry.marching_tets.interp_coef().item()
+        total_error += (result_interp_coef - interp_coef) ** 2 / 5
+    
+        print(f"target:{interp_coef} result:{result_interp_coef}")
+        file.write(f"target:{interp_coef} result:{result_interp_coef}\n")
         
     print(f"total error:{total_error}")
     file.write(f"total error:{total_error}\n")
     file.close()
         
+
 #----------------------------------------------------------------------------

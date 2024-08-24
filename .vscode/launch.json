@@ -22,15 +22,6 @@
             "justMyCode": true,
         },
         {
-            "name": "sdf-nerf",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train_sound.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "args": ["--config", "configs/sdf_nerf.json"]
-        },
-        {
             "name": "generate-thickness-mesh",
             "type": "python",
             "request": "launch",
@@ -49,49 +40,22 @@
             "args": ["--config", "configs/thickness_train.json"]
         },
         {
-            "name": "sphere-thickness",
+            "name": "generate-morphing-mesh",
             "type": "python",
             "request": "launch",
-            "program": "experiments/train_sound_thickness.py",
+            "program": "experiments/morphing_generate.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--config", "configs/sphere_thickness.json"]
+            "args": ["--config", "configs/morphing_generate.json"]
         },
         {
-            "name": "arma-thickness",
+            "name": "morphing_train",
             "type": "python",
             "request": "launch",
-            "program": "experiments/train_sound_thickness.py",
+            "program": "experiments/morphing_train.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--config", "configs/arma_thickness.json"]
-        },
-        {
-            "name": "bunny-thickness",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train_sound_thickness.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "args": ["--config", "configs/bunny_thickness.json"]
-        },
-        {
-            "name": "frog-thickness",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train_sound_thickness.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "args": ["--config", "configs/frog_thickness.json"]
-        },
-        {
-            "name": "dragon-thickness",
-            "type": "python",
-            "request": "launch",
-            "program": "experiments/train_sound_thickness.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "args": ["--config", "configs/dragon_thickness.json"]
+            "args": ["--config", "configs/morphing_train.json"]
         },
     ]
 }
