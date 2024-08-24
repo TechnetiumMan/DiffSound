@@ -104,9 +104,6 @@ if __name__ == "__main__":
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.01)
     
     FLAGS = parser.parse_args()
-
-    # FLAGS.dmtet_grid          = 32                       # Resolution of initial tet grid. We provide 64 and 128 resolution grids. Other resolutions can be generated with https://github.com/crawforddoran/quartet
-    # FLAGS.mesh_scale          = 2.5                        # Scale of tet grid box. Adjust to cover the model
     
     # for multi model(audio) training
     FLAGS.mode_num = 16

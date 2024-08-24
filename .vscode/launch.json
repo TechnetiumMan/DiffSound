@@ -57,5 +57,14 @@
             "justMyCode": true,
             "args": ["--config", "configs/morphing_train.json"]
         },
+        {
+            "name": "mat_sync_train",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/material_sync_train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/material_sync_train.json"]
+        },
     ]
 }

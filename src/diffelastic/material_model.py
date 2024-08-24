@@ -16,7 +16,9 @@ class MatSet():
     Tin = 7265, 5e10, 0.325, 2, 3E-8
     Test = 2700, 6E10, 0.19, 6, 1E-7
     # gt9 = 2700, 7.055E10, 0.1892, 15, 1E-7
-    gt2 = 2700, 7.231E10, 0.1958, 15, 2.0E-8
+    # gt2 = 2700, 7.231E10, 0.1958, 15, 2.0E-8
+    RandomMin = 2700, 1E10, 0.1, 6, 1E-7
+    RandomMax = 2700, 1E11, 0.4, 6, 1E-7
 
 class Material(object):
     def __init__(self, material):

@@ -28,6 +28,31 @@ class TetMesh:
 
     def __repr__(self):
         return 'TetMesh(vertices={}, tets={}, order={})'.format(self.vertices.shape, self.tets.shape, self.order)
+    
+    def from_triangle_mesh(filename, log=False):
+        '''
+        Create a tetrahedral mesh from a triangle mesh.
+        '''
+        if not os.path.exists(filename + "_.msh"):
+            mesh = meshio.read(filename)
+            # check if the mesh is a triangle mesh
+            assert (mesh.cells[0].type == 'triangle')
+
+            # convert the triangle mesh to a tetrahedral mesh
+            # need to install FloatTetWild first
+            result = subprocess.run(
+                ["FloatTetwild_bin", "-i", filename, "--max-threads", "8", "--coarsen"], \
+                    capture_output=True, text=True)
+            if log:
+                print(result.stdout, result.stderr)
+
+        mesh = meshio.read(filename + "_.msh")
+        # remove the intermediate file
+        vertices = torch.Tensor(mesh.points).cuda()
+        tets = torch.Tensor(mesh.cells[0].data).long().cuda()
+        print('Load tetramesh with ', len(vertices),
+              ' vertices & ', len(tets), ' tets')
+        return TetMesh(vertices, tets)
 
     @property
     def transform_matrix(self):

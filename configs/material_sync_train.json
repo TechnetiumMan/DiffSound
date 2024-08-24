@@ -1,0 +1,13 @@
+{
+    "sample_rate": 32000,
+    "frame_num": 8000,
+    "force_frame_num": 150,
+    "mesh_dir": "data/mesh/bowl/bowl.obj",
+    "mesh_name": "bowl",
+    "mode_num": 16,
+    "max_epoch": 30,
+    "early_loss_epoch": 10,
+    "log_range_step": 4,
+    "out_dir": "out/material_sync/",
+    "exp_mode": 3
+}

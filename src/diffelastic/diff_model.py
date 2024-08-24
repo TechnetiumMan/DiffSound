@@ -4,11 +4,10 @@ import numpy as np
 from .material_model import MatSet, Material
 from .mesh import TetMesh
 from .deform import Deform
-from ..lobpcg import lobpcg_func
+from ..ddsp.oscillator import WeightedParam
 import scipy
 import scipy.sparse
 from tqdm import tqdm
-from .shape_func import get_shape_function
 from .mass_matrix import get_elememt_mass_matrix
 
 batch_trace = torch.vmap(torch.trace)
@@ -48,20 +47,139 @@ class FixedLinear(nn.Module):
         mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
         return mat
 
+# used in material parameter inference
+class TrainableLinear(nn.Module):
+    def __init__(self, mat: Material, bin_num=16, baseline=False):
+        super().__init__()
+        self.youngs_list = torch.linspace(
+            np.log(mat.youngs / 10),
+            np.log(mat.youngs * 10),
+            bin_num,
+        )
+        self.youngs_list = torch.exp(self.youngs_list)
+        # baseline = False
+        if baseline:
+            self.poisson_list = torch.linspace(mat.poisson, mat.poisson, 1)
+        else:
+            self.poisson_list = torch.linspace(0.01, 0.499, bin_num)
+        self.youngs = WeightedParam(self.youngs_list)
+        self.poisson = WeightedParam(self.poisson_list)
+        self.mat = mat
+
+    def forward(self, F: torch.Tensor):
+        """
+        Piola stress
+        F: deformation gradient with shape (batch_size, node_size, 3, 3)
+        return: stress with shape (batch_size, node_size, 3, 3)
+        """
+
+        batch_size, node_size, _, _ = F.shape
+        F = F.reshape(batch_size * node_size, 3, 3)
+        stress = self.get_stress(F)
+        return stress.reshape(batch_size, node_size, 3, 3)
+
+    def get_stress(self, F):
+        lame_lambda = (
+            self.youngs()
+            * self.poisson()
+            / ((1 + self.poisson()) * (1 - 2 * self.poisson()))
+        )
+        lame_mu = self.youngs() / (2 * (1 + self.poisson()))
+        stress = lame_mu * (F + F.transpose(1, 2)) + lame_lambda * batch_trace(
+            F
+        ).unsqueeze(-1).unsqueeze(-1) * torch.eye(3, device=F.device)
+        return stress
+
+    def jacobian_F(self):
+        inputs = torch.zeros(1, 3, 3).cuda().double()
+        mat = torch.autograd.functional.jacobian(self.get_stress, inputs)
+        return mat
+
+def build_model(mesh_dir, mode_num, order,
+                     mat, task, vertices=None, tets=None, scale_range=None, init_scale=None):
+    if task == "material" or task == "mat_baseline": # mat_baseline: no trainable poisson
+        mat_model = TrainableLinear
+    elif task == "gt":
+        mat_model = FixedLinear
+    else:
+        raise ValueError("task not defined")
+        
+    model = DiffSoundObj(mesh_dir=mesh_dir, mode_num=mode_num, order=order,
+                     mat=mat, mat_model=mat_model, task=task)
+    
+    if task == "material" or task == "mat_baseline":
+        model.init_material_coeffs()
+        
+    return model
 
 class DiffSoundObj:
     def __init__(
         self,
-        vertices,
-        tets,
+        vertices=None,
+        tets=None,
         mode_num=16,
         mat=MatSet.Ceramic,
-        order=1
+        order=1,
+        mat_model=FixedLinear,
+        task="material",
+        mesh_dir=None
     ):
-        self.tetmesh = TetMesh(vertices, tets).to_high_order(order)
+        if mesh_dir:
+            self.mesh_dir = mesh_dir
+            self.tetmesh = TetMesh.from_triangle_mesh(
+                mesh_dir
+            ).to_high_order(order)
+        else:
+            self.tetmesh = TetMesh(vertices, tets).to_high_order(order)
+            
         self.deform = Deform(self.tetmesh)
-        self.material_model = FixedLinear(Material(mat))
+        if task == "mat_baseline":
+            self.material_model = mat_model(Material(mat), baseline=True)
+        else:
+            self.material_model = mat_model(Material(mat))
+        # self.material_model = mat_model(Material(mat))
         self.mode_num = mode_num
+        self.U_hat_full = None
+        self.task = task
+        
+    # return trainable parameters
+    def parameters(self):
+        if self.task == "material":
+            return self.material_model.parameters()
+        elif self.task == "mat_baseline":
+            return self.material_model.youngs.parameters() # only youngs is trainable
+        else:
+            return None
+        
+    def init_material_coeffs(self):
+        print("pretrain material")
+        optimizer = torch.optim.Adam(self.material_model.parameters(), lr=5e-3)
+        gt_youngs = (
+            self.material_model.mat.youngs
+        )
+        gt_poisson = self.material_model.mat.poisson
+        for i in tqdm(range(5000)):
+            optimizer.zero_grad()
+            loss = (self.material_model.youngs() - gt_youngs) ** 2 / gt_youngs**2 + (
+                self.material_model.poisson() - gt_poisson
+            ) ** 2 / gt_poisson**2
+            loss.backward()
+            optimizer.step()
+        print(
+            "(net) youngs: ",
+            self.material_model.youngs(),
+            "poisson: ",
+            self.material_model.poisson(),
+        )
+        print(
+            "(material table) youngs: ",
+            self.material_model.mat.youngs,
+            "poisson: ",
+            self.material_model.mat.poisson,
+        )
+        self.scale = torch.eye(3, dtype=torch.float64).cuda()
+        # self.origin_mass_matrix = self.mass_matrix.clone()
+
 
     def update_stiff_matrix(self, assemble_batch_size=20000):
         N = self.deform.num_nodes_per_tet
@@ -192,6 +310,22 @@ class DiffSoundObj:
         )
         mass_matrix = torch.sparse_coo_tensor(indices, values, shape)
         self.mass_matrix = mass_matrix.coalesce()
+        
+    def stiff_func(self, x_in: torch.Tensor):
+        # the input may be (point_num*3, modes) or (point_num*3)
+        if len(x_in.shape) == 1:
+            x = x_in.unsqueeze(1)
+        else:
+            x = x_in
+        x = x.transpose(0, 1)
+        x = x.reshape(x.shape[0], -1, 3)
+        F = self.deform.gradient_batch(x)
+        stress = self.material_model(F)
+        force = self.deform.stress_to_force_batch(stress)  # (modes, point_num*3)
+        force = force.transpose(0, 1)
+        if len(x_in.shape) == 1:
+            force = force.squeeze(1)
+        return force
 
     def eigen_decomposition(self):
         self.update_mass_matrix(self.material_model.mat.density)
@@ -233,6 +367,25 @@ class DiffSoundObj:
         self.U_hat = (
             torch.from_numpy(U_hat_full[:, 6:][:, : self.mode_num]).cuda().double()
         )
+        
+    def get_undamped_freqs(self):
+        predict = torch.zeros(self.mode_num).cuda()
+        predict += self.eigenvalues # (mode_num)
+
+        # idxs = torch.randperm(self.mode_num)[:sample_num] # (sample_num)
+        # U = self.U_hat[:, idxs].float() # (n, sample_num)
+        # vals = self.eigenvalues[idxs]
+        # if self.task != "gt":
+        #     add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * (U.T @ (self.mass_matrix.float() @ U)).diagonal()
+        #     predict[idxs] += add_term
+        if self.task != "gt":
+            U = self.U_hat.float() # (n, sample_num)
+            vals = self.eigenvalues.float()
+            if self.task != "gt":
+                add_term = (U.T @ self.stiff_func(U)).diagonal() - vals * (U.T @ (self.mass_matrix.float() @ U)).diagonal()
+                predict += add_term
+        predict = torch.sqrt(predict) / 2 / np.pi
+        return predict.unsqueeze(1)
 
     def get_vals(self):
         predict = torch.zeros(self.mode_num).cuda()

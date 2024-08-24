@@ -94,7 +94,7 @@ class Deform():
         '''
         assert u.device == self.device
         u = u[self.tetmesh.tets].transpose(
-            1, 2)  # (num_tets, 3, num_nodes_per_tet)
+            1, 2).float()  # (num_tets, 3, num_nodes_per_tet)
         # (num_tets*num_guass_points, 3, num_nodes_per_tet)
         u = u.unsqueeze(1).repeat(1, self.num_guass_points, 1, 1).reshape(
             self.num_tets * self.num_guass_points, 3, self.num_nodes_per_tet)  # (num_tets*num_guass_points, 3, num_nodes_per_tet
