@@ -66,5 +66,14 @@
             "justMyCode": true,
             "args": ["--config", "configs/material_sync_train.json"]
         },
+        {
+            "name": "mat_real_train",
+            "type": "python",
+            "request": "launch",
+            "program": "experiments/material_real_train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--config", "configs/material_real_train.json"]
+        },
     ]
 }

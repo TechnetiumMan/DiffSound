@@ -6,6 +6,7 @@ import yaml
 from glob import glob
 from src.lobpcg import lobpcg_func
 import matplotlib.pyplot as plt
+import torchaudio.transforms as T
 
 
 def remove_duplicate_vertices(vertices, tets):
@@ -106,6 +107,10 @@ def mode_loss(pred, gt):
     # fundamental_freq
     err += torch.abs(pred[0] - gt[0]) / gt[0]
     return err
+
+def resample(waveform, sample_rate, new_sample_rate):
+    t = T.Resample(sample_rate, new_sample_rate).cuda()
+    return t(waveform)
 
 # load a tet mesh export from comsol in .txt format, return vertices and tets
 def comsol_mesh_loader(filename):

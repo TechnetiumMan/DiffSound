@@ -1,10 +1,13 @@
-# 
+# material parameter inference in synthetic material data
+# we use 16 sets of random material parameters (Young's modulus and Poisson's ratio) to generate ground truth audio
+# for each set of ground truth material parameters, we optimize the trainable material parameters to make its audio to fit the ground truth audio
+# we have 4 mode of experiment: 
+# 0: ord=1,no poisson (baseline); 1:ord=2, no poisson; 2:ord=1, learnable poisson; 3:ord=2, learnable poisson (our DiffSound)
 
 import sys
 sys.path.append('./')
 import torch
 import os
-import configparser
 import argparse
 import json
 from datetime import datetime

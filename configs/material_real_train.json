@@ -4,10 +4,13 @@
     "force_frame_num": 150,
     "mesh_dir": "data/mesh/bowl/bowl.obj",
     "mesh_name": "bowl",
+    "audio_dir": "data/real_audio",
+    "material": "Ceramic",
+    "audio_num": 8,
     "mode_num": 16,
     "max_epoch": 3000,
     "early_loss_epoch": 1000,
     "log_range_step": 4,
-    "out_dir": "out/material_sync/",
+    "out_dir": "out/material_real/",
     "exp_mode": 3
 }

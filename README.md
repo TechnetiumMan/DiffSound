@@ -23,6 +23,24 @@ Then add the build directory to the environment variable PATH.
 
 ## Experiments
 
+### Material Parameter Inference
+#### synthetic audio data
+Infer the material parameter (Young's modulus and Poisson's ratio) using synthetic audio data from modal analysis:
+```bash
+python experiments/material_sync_train.py --config configs/material_sync_train.json
+```
+we have 4 experience modes in ```configs/material_sync_train.json``` (different in mesh order and training Poisson's ratio) to compare our methods and baseline methods:
+0: ord=1, no Poisson's ratio (baseline: Ren et al. 2013); 
+1: ord=2, no Poisson's ratio; 
+2: ord=1, learnable Poisson's ratio; 
+3: ord=2, learnable Poisson's ratio (our DiffSound).
+
+#### real audio data
+Infer the material parameter (Young's modulus and Poisson's ratio) using real-recorded audio data:
+```bash
+python experiments/material_real_train.py --config configs/material_real_train.json
+```
+
 ### Volumetric Thickness Inference
 first, generate hollow meshes with specific thicknesses from initial solid mesh:
 ```bash

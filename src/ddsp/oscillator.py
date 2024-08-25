@@ -55,8 +55,8 @@ class DampedOscillator(nn.Module):
         self.mode_num = mode_num
         # self.freq_nonlinear = WeightedSum(
         #     [audio_num, mode_num, sample_num], f_range) 
-        self.freq_nonlinear = WeightedSum(
-            [audio_num, mode_num, 8000], f_range) # not used
+        # self.freq_nonlinear = WeightedSum(
+        #     [audio_num, mode_num, 8000], f_range) # not used
         bin_num = 64
         self.alpha_list = torch.linspace(
             np.log(mat.alpha / 10),
@@ -139,6 +139,41 @@ class DampedOscillator(nn.Module):
         signal = signal.squeeze(0)
         signal = signal[:, :self.sample_num]
         return signal # + noise * noise_rate
+    
+    def forward_curve(self, freq_linear, damping_curve):
+        # amp = self.amp()
+        freq = freq_linear.detach().cpu().numpy().reshape(-1)
+        
+        # debug
+        # amp[:,freq > 16000] = 0
+        
+        damp = torch.zeros(self.audio_num, self.mode_num, self.sample_num).cuda()
+        damp_= torch.zeros(1, self.mode_num, 1).cuda()
+        for i in range(len(freq)):
+            damp[:, i, :] = torch.tensor(damping_curve(freq[i]))
+            damp_[:, i, :] = torch.tensor(damping_curve(freq[i]))
+        undamped_freq = freq_linear #  + 0.0 * self.freq_nonlinear()
+        lbd_linear = (freq_linear * 2 * np.pi)**2
+        self.damped_freq = (lbd_linear - damp_**2)**0.5 / (2 * np.pi)
+        lbd = (undamped_freq * 2 * np.pi)**2
+        freq = (lbd - damp**2)**0.5 / (2 * np.pi)
+        damp = torch.cumsum(damp / self.sr, dim=2)
+        freq = torch.cumsum(freq / self.sr, dim=2)
+        damp_part = torch.exp(-damp)
+        freq_part = torch.sin(2 * np.pi * freq)
+        signal = (damp_part * freq_part)
+
+        signal = signal.sum(1)
+        signal = signal.unsqueeze(0)
+        signal = F.conv1d(signal, self.forces, groups=self.audio_num,
+                          padding=self.force_frame_num - 1)
+        signal = signal.squeeze(0)
+        signal = signal[:, :self.sample_num]
+        
+        # debug
+        signal = signal / torch.max(torch.abs(signal), dim=1, keepdim=True)[0]
+        
+        return signal
 
 class GTDampedOscillator(nn.Module):
     def __init__(self, forces, audio_num, mode_num, sample_num, sr, f_range:list, mat:Material):
