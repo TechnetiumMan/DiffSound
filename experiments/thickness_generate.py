@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # generate target mesh with thickness=thickness_coef
     for thickness_coef in FLAGS.thickness_list:
         target_geometry = DMTetGeometry(128, FLAGS.mesh_scale, FLAGS)
-        target_geometry.apply_sdf(FLAGS.init_mesh_dir + FLAGS.mesh_name + ".obj", FLAGS)
+        target_geometry.apply_sdf(FLAGS.init_mesh_dir + FLAGS.mesh_name + ".obj")
         target_triangle_mesh = target_geometry.getMesh(return_triangle=True, thickness_coef=thickness_coef)
         
         os.makedirs(os.path.join(FLAGS.out_mesh_dir, f"{FLAGS.mesh_name}"), exist_ok=True)

@@ -1,13 +1,18 @@
 # DiffSound
-
-# TODO!!!
-This is a high-order differential finite element method (DiffFEM) solver for the sound vibration simulation of a 3D solid object. The code is written in python and uses the pytorch library for the automatic differentiation. 
+This is the code for paper "DiffSound: Differentiable Modal Sound Rendering and Inverse Rendering for Diverse Inference Tasks".
+The code is written in python and uses the pytorch library for the automatic differentiation. 
 
 ## Prerequisites
-- Pytorch 2.0 (cuda 11.7)
-- pytorch-scatter 
+- Pytorch 2.0 (cuda 11.7, python 3.8)
 - fTetWild 
-- scipy, matplotlib, tqdm, numpy, meshio, pymesh
+
+For the environment creation and prerequisites installation:
+```bash
+conda create -n DiffSound python=3.8
+conda activate DiffSound
+pip install -r requirements.txt
+```
+
 
 For the installation of fTetWild:
 ```bash

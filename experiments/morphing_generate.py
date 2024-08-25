@@ -36,7 +36,7 @@ if __name__ == "__main__":
     for interp_coef in FLAGS.morphing_list:
         target_geometry = DMTetGeometry(128, FLAGS.mesh_scale, FLAGS)
         target_geometry.apply_sdf2(FLAGS.init_mesh_dir + FLAGS.mesh_name1 + ".obj", 
-                                   FLAGS.init_mesh_dir + FLAGS.mesh_name2 + ".obj", FLAGS)
+                                   FLAGS.init_mesh_dir + FLAGS.mesh_name2 + ".obj")
         target_triangle_mesh = target_geometry.getMesh(return_triangle=True, interp_coef=interp_coef)
         
         os.makedirs(os.path.join(FLAGS.out_mesh_dir, f"{FLAGS.mesh_name1}_{FLAGS.mesh_name2}"), exist_ok=True)
