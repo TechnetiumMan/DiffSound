@@ -175,31 +175,33 @@ class DMTet:
             torch.gather(input=idx_map[num_triangles == 2], dim=1, index=self.triangle_table[tetindex[num_triangles == 2]][:, :6]).reshape(-1,3),
         ), dim=0)
         
-        # 必须在这里去除碎片，以使得uv_idx和去除碎片后的mesh相统一！
+        # We must remove fragments here to make the uv_idx consistent with the mesh after removing fragments!
         verts_connected, faces_connected = get_largest_connected_component_triangle(verts, faces)
-        
-        # 现在，我们必须更新valid tets, 只留下去除碎片后的tets
-        # 首先找到原有顶点中哪些顶点在去除碎片后仍然存在
+
+        # Now, we update valid tets, leaving only the tets after removing fragments
+        # First find out which vertices in the original vertices still exist after removing fragments
         verts_connect_matches = torch.all(torch.eq(verts.unsqueeze(0), verts_connected.unsqueeze(1)), dim=-1)
         verts_connect_idx = torch.where(verts_connect_matches)[1] # (n_verts_connected) in range (n_verts)
         
-        # 找到含有剩余顶点的面
-        faces_origin_idx = verts_connect_idx[faces_connected] # 是faces的真子集
+        # Find the faces that contain the remaining vertices
+        faces_origin_idx = verts_connect_idx[faces_connected]
         faces_connect_matches = torch.all(torch.eq(faces.unsqueeze(0), faces_origin_idx.unsqueeze(1)), dim=-1)
-        faces_connect_idx = torch.where(faces_connect_matches)[1] # 每个剩余的面在faces中的下标
+        faces_connect_idx = torch.where(faces_connect_matches)[1] 
 
         # Get global face index (static, does not depend on topology)
-        # 找到所有有效面，用其下标做uv map
+        # Find all valid faces and use their indices to uv map
         num_tets = tet_fx4.shape[0]
-        tet_gidx = torch.arange(num_tets, dtype=torch.long, device="cuda")[valid_tets] # 所有有效四面体在所有四面体中的全局编号
+        tet_gidx = torch.arange(num_tets, dtype=torch.long, device="cuda")[valid_tets] # The global index of all valid tetrahedra in all tetrahedra
         face_gidx = torch.cat((
             tet_gidx[num_triangles == 1]*2,
             torch.stack((tet_gidx[num_triangles == 2]*2, tet_gidx[num_triangles == 2]*2 + 1), dim=-1).view(-1)
-        ), dim=0) # 由于每个四面体至多有两个有效面，所以直接用四面体的全局编号*2作为有效面的全局编号
+        ), dim=0) 
+        # Since each tetrahedron has at most two valid faces, 
+        # the global number of the tetrahedron is used directly *2 as the global number of the valid face
 
         uvs, uv_idx = self.map_uv(faces, face_gidx, num_tets*2)
         
-        # 为了使得uv map对应上去除碎片后的tet，需要更新uv_idx
+        # In order to make the uv map correspond to the tet after removing the fragments, the uv_idx needs to be updated
         uv_idx_connected = uv_idx[faces_connect_idx]
         
         # generate tetmesh (the same of triangle mesh above)(verts and vert indices of each tet)

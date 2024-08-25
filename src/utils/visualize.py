@@ -59,8 +59,10 @@ class viewer():
 
     def init_3D(self):
         
-        # 注意：原代码elements只用来画三角形，其只取输入的前三个维度画，若强行输入四面体，则会只画四面体的第一个面！
-        # 如果我们想画四面体，就要把四面体的四个面都画上！即：elements = [0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]的组合
+        # Note: The original code uses elements only to draw triangles, and it only takes the first three dimensions 
+        # of the input to draw. If you forcibly input tetrahedra, only the first face of the tetrahedra will be drawn!
+        # If we want to draw tetrahedra, we need to draw all four faces of the tetrahedra! 
+        # That is, the combination of elements = [0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]
         if self.draw_tet:
             i = np.concatenate([self.elements[0], self.elements[0], self.elements[0], self.elements[1]])
             j = np.concatenate([self.elements[1], self.elements[1], self.elements[2], self.elements[2]])

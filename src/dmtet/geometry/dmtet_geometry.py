@@ -19,10 +19,15 @@ import torch.nn.functional as F
 
 class DMTet:
     def __init__(self):
-        # 按照每个四面体的每个顶点是否在物体内部，将四面体分类为16类，类序号0-15
-        # 每类四面体内部待构造的每个三角面的三个顶点的下标（若无需构造某个三角面，其值全为-1）
-        # 注意序号规则：四面体四个顶点分别为0,1,2,3,其二进制编码为1,2,4,8,内部顶点编码和为类别序号，六条边的顺序按照[01,02,03,12,13,23]排列，下标为0-5
-        # 以下矩阵为每类四面体内待构造的每个三角面，其三个顶点所在边在这个四面体内的下标
+        # According to whether each vertex of the tetrahedron is inside the object, 
+        # the tetrahedron is classified into 16 categories, and the class number is 0-15.
+        # The three vertices of each triangle to be constructed inside each tetrahedron are indexed in this tetrahedron, 
+        # and the index of the edge where the three vertices are located.
+        # notice the index rule: the four vertices of the tetrahedron are 0,1,2,3,
+        # their binary encoding is 1,2,4,8, the sum of the internal vertex encoding is the category number,
+        # the order of the six edges is arranged according to [01,02,03,12,13,23], and the index is 0-5.
+        # The following matrix is the three vertices of each triangle to be constructed inside each tetrahedron,
+        # and the index of the edge where the three vertices are located in this tetrahedron.
         self.triangle_table = torch.tensor(
             [
                 [-1, -1, -1, -1, -1, -1],
@@ -55,15 +60,17 @@ class DMTet:
             [0, 1, 0, 2, 0, 3, 1, 2, 1, 3, 2, 3], dtype=torch.long, device="cuda"
         )
 
-        # 现在我们来构造四面体分割(以上三角面分割的推广)
-        # 每一类分割出的四面体数量, 事实上，内部点数n和四面体数t的关系满足(n,t)=(0,0),(1,1),(2,3),(3,3),(4,1)
+        # now we construct the tetrahedron segmentation (the extension of the above triangle segmentation)
+        # the number of tetrahedra segmented in each class, in fact, the relationship between the number of 
+        # internal points n and the number of tetrahedra t satisfies (n, t) = (0,0), (1,1), (2,3), (3,3), (4,1)
         self.num_tets_table = torch.tensor(
             [0, 1, 1, 3, 1, 3, 3, 3, 1, 3, 3, 3, 3, 3, 3, 1],
             dtype=torch.long,
             device="cuda",
         )
 
-        # 现在，我们将四面体的四个顶点编号为0-3，每条边上的点编号为4-9，给出每一类四面体分割成的四面体的每个顶点的编号的矩阵
+        # Now, we number the four vertices of the tetrahedron as 0-3, the points on each edge as 4-9, 
+        # and give the number of each vertex of the tetrahedron segmented into tetrahedra in each class.
         self.tet_table = torch.tensor(
             [
                 [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],  # (0,0,0,0)
@@ -106,74 +113,76 @@ class DMTet:
     ###############################################################################
 
     def __call__(self, pos_nx3, sdf_n, tet_fx4):
-        # pos_nx3: 变形后空间体素每个顶点的坐标
-        # sdf_n: 空间体素每个顶点的sdf值
-        # tet_fx4: 空间体素每个四面体的顶点索引
-
+        # pos_nx3: the coordinates of each vertex of the space voxel after deformation
+        # sdf_n: the sdf value of each vertex of the space voxel
+        # tet_fx4: the vertex index of each tetrahedron of the space voxel
+        
+        # the same as DMTet at first
         with torch.no_grad():
             occ_n = sdf_n > 0
             occ_fx4 = occ_n[tet_fx4.reshape(-1)].reshape(
                 -1, 4
-            )  # occ_fx4: 空间体素每个四面体的每个顶点是否在物体内部
-            occ_sum = torch.sum(occ_fx4, -1)  # occ_sum: 空间体素每个四面体内部顶点的数量
+            )  
+            occ_sum = torch.sum(occ_fx4, -1)
             valid_tets = (occ_sum > 0) & (
                 occ_sum < 4
-            )  # valid_tets(bool): 每个四面体是否有边经过（即需要用其计算）
+            ) 
 
             # find all vertices
             all_edges = tet_fx4[valid_tets][:, self.base_tet_edges].reshape(
                 -1, 2
-            )  # 所有的四面体所有的边（有重复）
-            all_edges = self.sort_edges(all_edges)  # 排序所有的边，使得每个边的第一个顶点索引小于第二个顶点索引（有重复）
+            ) 
+            
+            all_edges = self.sort_edges(all_edges) 
             unique_edges, idx_map = torch.unique(
                 all_edges, dim=0, return_inverse=True
-            )  # unique_edges: 所有的四面体所有的边（无重复），idx_map: 每个边在unique_edges中的索引
+            )  
 
             unique_edges = unique_edges.long()
             mask_edges = (
                 occ_n[unique_edges.reshape(-1)].reshape(-1, 2).sum(-1) == 1
-            )  # mask_edges: 恰好有一个顶点在物体内部的边（称有效边）
+            )  
             mapping = (
                 torch.ones((unique_edges.shape[0]), dtype=torch.long, device="cuda")
                 * -1
             )
             mapping[mask_edges] = torch.arange(
                 mask_edges.sum(), dtype=torch.long, device="cuda"
-            )  # 将有效边从0开始编号，其他的边编号为-1
+            )  
             idx_map = mapping[
                 idx_map
-            ]  # map edges to verts # 初始每条(有重复)边，其中有效边相关编号（目前和顶点没什么关系！）
+            ]  
 
-            interp_v = unique_edges[mask_edges]  # 有效边其两端顶点的下标
-        edges_to_interp = pos_nx3[interp_v.reshape(-1)].reshape(-1, 2, 3)  # 有效边顶点的坐标
+            interp_v = unique_edges[mask_edges] 
+        edges_to_interp = pos_nx3[interp_v.reshape(-1)].reshape(-1, 2, 3)
         edges_to_interp_sdf = sdf_n[interp_v.reshape(-1)].reshape(
             -1, 2, 1
-        )  # 有效边顶点的sdf值，每条边应当为一正一负
-        edges_to_interp_sdf[:, -1] *= -1  # 为便于后续插值计算，对每条边后一顶点sdf值取负，使得两个顶点sdf值同号
+        )  
+        edges_to_interp_sdf[:, -1] *= -1  
 
         denominator = edges_to_interp_sdf.sum(
             1, keepdim=True
-        )  # 插值分母(每条边两个顶点sdf值(已同号)之和)
+        )  
 
         edges_to_interp_sdf = torch.flip(edges_to_interp_sdf, [1]) / denominator
         verts = (edges_to_interp * edges_to_interp_sdf).sum(
             1
-        )  # 插值求得每条边上sdf值为零(即物体表面与该边交点)的坐标
+        )  
 
         idx_map = idx_map.reshape(
             -1, 6
-        )  # 每个四面体的每条边的编号（有效边为>=0, 其他边为-1，事实上每个四面体有效边的数量只有0，3，4三种情况）
+        )  
 
         v_id = torch.pow(
             2, torch.arange(4, dtype=torch.long, device="cuda")
         )  # [1, 2, 4, 8]
         tetindex = (occ_fx4[valid_tets] * v_id.unsqueeze(0)).sum(
             -1
-        )  # 按照每个四面体的每个顶点是否在物体内部，将四面体分类为16类，类序号0-15
+        ) 
 
-        num_triangles = self.num_triangles_table[tetindex]  # 直接查表得到，每一类四面体中待构造三角面数量
+        num_triangles = self.num_triangles_table[tetindex] 
 
-        num_tets = self.num_tets_table[tetindex]  # 查表得到每一类四面体中子四面体数量
+        num_tets = self.num_tets_table[tetindex]
 
         # # Generate triangle indices
         faces = torch.cat(
@@ -190,19 +199,23 @@ class DMTet:
                 ).reshape(-1, 3),
             ),
             dim=0,
-        )  # 获得每个四面体内部待构造的每个三角面的三个顶点的下标
-        # verts和faces能够一一对应的原因是，每个有效边恰好插值出一个顶点，因此顶点的编号就是有效边的编号
+        )  
+        # Get the index of the three vertices of each triangle to be constructed inside each tetrahedron.
+        # The reason why verts and faces can correspond one-to-one is that each valid edge just interpolates a vertex,
+        # so the vertex number is exactly the edge number
 
-        # 由于待生成四面体包含顶点和边点，需要将顶点加入边点集idx_map中
-        # 所有需要计算的四面体(包含其所有顶点编号)
+        # Now let's generate the tetrahedra mesh
+        # Since the tetrahedron to be generated contains vertices and edge points,
+        # the vertices need to be added to the edge point set idx_map
+        # All tetrahedra to be calculated (including all vertex numbers):
         valid_tets_vert_idx = tet_fx4[valid_tets]
 
-        # 获得原顶点总数
         num_verts = pos_nx3.shape[0]
-        # 将边点的序号加上顶点的数量，以使得其直接顺序排列
+
+        # Add the number of vertices to the edge point number so that they are arranged in order    
         idx_map += num_verts
 
-        # 同时包含每个有效四面体顶点和边点的集合（顶点在前，边点在后）
+        # The set containing each valid tetrahedron vertex and edge point (vertices in front, edge points in back)
         tet_verts_and_edges = torch.cat([valid_tets_vert_idx, idx_map], dim=1)
 
         side_tets = torch.cat(
@@ -220,24 +233,31 @@ class DMTet:
             ),
             dim=0,
         )
-        # 现在，side_tets包含了所有原四面体顶点（小数）和新增的边点（大数）,但是其只包含含有有效边的边缘四面体，
-        # 其中小数顶点对应pos_nx3中编号，大数边点对应verts中编号
-        # 由于以上操作使得边点序号紧跟着顶点序号，因此直接将边点和顶点cat到一起，其序号应当刚好对上
+
+        # Now, side_tets contains all the original tetrahedron vertices (decimal) and the newly added edge points (large numbers),
+        # but it only contains the edge tetrahedra with valid edges,
+        # where the decimal vertices correspond to the numbering in pos_nx3, 
+        # and the large edge points correspond to the numbering in verts.
+        # Since the above operation makes the edge point number follow the vertex number closely, 
+        # the edge point and the vertex can be cat together, and their numbers should match exactly
         all_verts = torch.cat([pos_nx3, verts], dim=0)
 
-        # 接着，我们还需要加入四个顶点全在内部的内部四面体，此时无需对点集做任何操作
+        # Next, we also need to add the inner tetrahedra with all four vertices inside,
+        # and no operation is required on the point set at this time
         with torch.no_grad():
             occ_n = sdf_n > 0
             occ_fx4 = occ_n[tet_fx4.reshape(-1)].reshape(
                 -1, 4
-            )  # occ_fx4: 空间体素每个四面体的每个顶点是否在物体内部
-            occ_sum = torch.sum(occ_fx4, -1)  # occ_sum: 空间体素每个四面体内部顶点的数量
-            inner_tets_bool = occ_sum == 4  # 每个四面体是否在内部
-            inner_tets = tet_fx4[inner_tets_bool]  # 所有内部四面体中顶点的下标
+            )  # occ_fx4: whether each vertex of each tetrahedron in the space voxel is inside the object
+            occ_sum = torch.sum(occ_fx4, -1)  # occ_sum: the number of vertices in each tetrahedron of the space voxel
+            inner_tets_bool = occ_sum == 4  # whether each tetrahedron is inside
+            inner_tets = tet_fx4[inner_tets_bool]  # the index of the vertices of all internal tetrahedra
 
-            all_tets = torch.cat([side_tets, inner_tets], dim=0)  # 将两类四面体放在一起
+            all_tets = torch.cat([side_tets, inner_tets], dim=0)  # Put the two types of tetrahedra together
 
-        # 注意此时的all_verts是包含没有被用上的点的，这些点必须被去掉，否则质量矩阵会非满秩，无法计算特征值, 以下是去除其中没有被all_tets包含的顶点的操作
+        # Note that all_verts at this time contains points that have not been used,
+        # these points must be removed, otherwise the quality matrix will be non-singular and the eigenvalues cannot be calculated.
+        # The following is the operation of removing vertices that are not included in all_tets.
         all_unique_tets, all_unique_verts_idx_map = torch.unique(
             all_tets.reshape(-1), return_inverse=True
         )
@@ -338,14 +358,6 @@ class DMTetGeometry(torch.nn.Module):
         self.sdf_nerf = NerfWithPositionEncoding(
             freq_num=freq_num, scale=scale, layer_num=3, hidden_dim=512
         )
-        # Random init
-        # sdf = torch.rand_like(self.verts[:,0]) * 0.01 - 0.5 + fill_rate
-        # center = torch.mean(self.verts, dim=0)
-        # verts_radius = (self.verts - center).norm(dim=1)
-        # sdf[verts_radius > radius * self.scale] = - 0.5
-
-        # self.sdf    = torch.nn.Parameter(sdf.clone().detach(), requires_grad=True)
-        # self.register_parameter('sdf', self.sdf)
 
         self.deform = torch.nn.Parameter(
             torch.zeros_like(self.verts), requires_grad=True
@@ -387,7 +399,7 @@ class DMTetGeometry(torch.nn.Module):
             all_edges_sorted = torch.sort(all_edges, dim=1)[0]
             self.all_edges = torch.unique(all_edges_sorted, dim=0)
 
-    # 从DMTet中获得四面体体素网格
+    # get tetrahedra mesh
     def getMesh(self):
         # Run DM tet to get a base mesh
         v_deformed = self.verts + self.scale * 1.8 / (self.grid_res * 2) * torch.tanh(
