@@ -12,7 +12,6 @@ runs
 experiments/specs
 nvdiffrec
 data_old
-data/mesh
 out
 real_data
 data/thickness

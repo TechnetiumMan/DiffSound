@@ -127,7 +127,7 @@ if __name__ == "__main__":
     for thickness in thickness_list:
         target_dir = os.path.join(FLAGS.target_mesh_dir, FLAGS.mesh_name, f"thickness{thickness}.obj")
         target_geometry = DMTetGeometry(FLAGS.dmtet_grid, FLAGS.mesh_scale, FLAGS)
-        target_geometry.apply_sdf(target_dir, FLAGS)
+        target_geometry.apply_sdf(target_dir)
         target_vals = target_geometry.get_eigenvalues(thickness_coef=1.0)
         print("ground truth eigenvalues:", target_vals)
 

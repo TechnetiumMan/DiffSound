@@ -121,7 +121,7 @@ class DiffSoundObj:
         mat=MatSet.Ceramic,
         order=1,
         mat_model=FixedLinear,
-        task="material",
+        task=None,
         mesh_dir=None
     ):
         if mesh_dir:

@@ -22,7 +22,6 @@ make
 Then add the build directory to the environment variable PATH.
 
 ## Experiments
-
 ### Material Parameter Inference
 #### synthetic audio data
 Infer the material parameter (Young's modulus and Poisson's ratio) using synthetic audio data from modal analysis:
@@ -41,27 +40,32 @@ Infer the material parameter (Young's modulus and Poisson's ratio) using real-re
 python experiments/material_real_train.py --config configs/material_real_train.json
 ```
 
+### Geometric Shape Estimation
+This experiment uses a coarse voxel as constraint, aiming to restore a more detailed shape from its modal eigenvalues:
+```bash
+python experiments/geometry_train.py --config configs/geometry_train.json
+```
+
 ### Volumetric Thickness Inference
-first, generate hollow meshes with specific thicknesses from initial solid mesh:
+First, generate hollow meshes with specific thicknesses from initial solid mesh:
 ```bash
 python experiments/thickness_generate.py --config configs/thickness_generate.json
 ```
-then, infer the thickness of each generated hollow mesh from its modal sound:
+Then, infer the thickness of each generated hollow mesh from its modal sound:
 ```bash
 python experiments/thickness_train.py --config configs/thickness_train.json
 ```
-the infer result (value in txt file and mesh result) is saved in ```out_dir``` in config file ```thickness_train.json``` (default: ```out/thickness```).
+The infer result (value in txt file and mesh result) is saved in ```out_dir``` in config file ```thickness_train.json``` (default: ```out/thickness```).
 
 ### Shape Morphing Inference
-first, generate morphed meshes from two initial mesh, with specific morphing coeffecient:
+First, generate morphed meshes from two initial mesh, with specific morphing coeffecient:
 ```bash
 python experiments/morphing_generate.py --config configs/morphing_generate.json
 ```
-then, infer the morphing coeffecient of each generated morphed mesh from its modal sound:
+Then, infer the morphing coeffecient of each generated morphed mesh from its modal sound:
 ```bash
 python experiments/morphing_train.py --config configs/morphing_train.json
 ```
-the infer result (value in txt file and mesh result) is saved in ```out_dir``` in config file ```morphing_train.json```(default: ```out/morphing```).
+The infer result (value in txt file and mesh result) is saved in ```out_dir``` in config file ```morphing_train.json```(default: ```out/morphing```).
 
 
-### 

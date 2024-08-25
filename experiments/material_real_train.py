@@ -28,8 +28,6 @@ os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='nvdiffrec')
     parser.add_argument('--config', type=str, default=None, help='Config file')
-    parser.add_argument('-i', '--iter', type=int, default=5000)
-    parser.add_argument('-lr', '--learning-rate', type=float, default=0.01)
 
     FLAGS = parser.parse_args()
 

@@ -14,7 +14,7 @@ class TetMesh:
     A class to represent a tetrahedral mesh.
     '''
 
-    def __init__(self, vertices: torch.Tensor, tets: torch.Tensor, order=1):
+    def __init__(self, vertices=None, tets=None, order=1):
         '''
         Create a tetrahedral mesh.
         :param vertices: tensor of shape (num_vertices, 3) containing the vertex positions
@@ -23,7 +23,8 @@ class TetMesh:
         '''
         self.vertices = vertices
         self.tets = tets
-        self.device = vertices.device
+        if vertices is not None:
+            self.device = vertices.device
         self.order = order
 
     def __repr__(self):
@@ -176,6 +177,27 @@ class TetMesh:
         new_tets = sort_indices[self.tets]
         self.vertices = self.vertices[inverse_indices]
         self.tets = new_tets
+        
+    def import_from_file(self, filename):
+        """
+        Import a tetrahedral mesh from a file.
+        :param filename: the filename to import the mesh from
+        """
+        # Load the mesh from a file
+        meshio_mesh = meshio.read(filename)
+
+        # Extract the vertices and tets
+        self.vertices = torch.from_numpy(meshio_mesh.points).float().cuda()
+        self.tets = torch.from_numpy(meshio_mesh.cells_dict["tetra"]).long().cuda()
+        self.device = self.vertices.device
+        self.order = 1
+
+        # Remove duplicate vertices
+        self.remove_duplicate_vertices()
+
+        print(f"Mesh loaded from file {filename}")
+        return self
+
 
     def export(self, filename):
         '''

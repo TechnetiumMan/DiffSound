@@ -1,0 +1,11 @@
+{
+    "iter": 1000,
+    "learning_rate": 1e-5,
+    "out_dir": "out/geometry/",
+    "init_mesh_dir": "data/mesh/shape/",
+    "mesh_name_list": ["bob", "oloid", "spot"],
+    "mode_num_list": [64],
+    "voxel_num_list": [16],
+    "grid_res": 32,
+    "freq_num": 3
+}
