@@ -6,7 +6,7 @@ The code is written in python and uses the pytorch library for the automatic dif
 - Pytorch 2.0 (cuda 11.7, python 3.8)
 - fTetWild 
 
-For the environment creation and prerequisites installation:
+For the environment creation and requirements installation:
 ```bash
 conda create -n DiffSound python=3.8
 conda activate DiffSound
