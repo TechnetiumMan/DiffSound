@@ -347,7 +347,7 @@ class DMTetGeometry(torch.nn.Module):
         self.sdf_regularizer = 0.02
         self.marching_tets = DMTet()
 
-        tets = np.load("src/dmtet/data/tets/{}_tets.npz".format(self.grid_res))
+        tets = np.load("data/tets/{}_tets.npz".format(self.grid_res))
         self.base_verts = torch.tensor(
             tets["vertices"], dtype=torch.float32, device="cuda"
         )
