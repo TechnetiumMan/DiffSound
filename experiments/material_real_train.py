@@ -166,7 +166,7 @@ if __name__ == "__main__":
         late_loss_func.losses[i].log_spec for i in range(len(late_loss_func.losses))]
 
     # Create the optimizer and scheduler
-    optimizer_model = Adam(model.parameters(), lr=5e-3)
+    optimizer_model = Adam(model.parameters(), lr=1e-3)
     scheduler_model = lr_scheduler.StepLR( 
         optimizer_model, step_size=100, gamma=0.9)
 

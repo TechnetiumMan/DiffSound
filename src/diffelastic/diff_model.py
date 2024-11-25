@@ -354,7 +354,7 @@ class DiffSoundObj:
         ).tocsr()
         mass_mat.eliminate_zeros()
         S, U_hat_full = scipy.sparse.linalg.eigsh(
-            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=0
+            stiff_mat, M=mass_mat, k=self.mode_num + 6, sigma=20000
         )
         # while (S > 20000).sum() < self.mode_num:
         #     S, U_hat_full = scipy.sparse.linalg.eigsh(
